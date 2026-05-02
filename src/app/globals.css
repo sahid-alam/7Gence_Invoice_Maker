@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 15% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 15% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 15% 10%;
+    --primary: 222 20% 12%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 15% 12%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 222 15% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 222 20% 12%;
+    --radius: 0.625rem;
+    --sidebar: 220 14% 98%;
+  }
+
+  .dark {
+    --background: 222 18% 9%;
+    --foreground: 210 20% 96%;
+    --card: 222 16% 11%;
+    --card-foreground: 210 20% 96%;
+    --popover: 222 16% 11%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 210 20% 96%;
+    --primary-foreground: 222 18% 9%;
+    --secondary: 222 15% 15%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 222 15% 15%;
+    --muted-foreground: 215 10% 55%;
+    --accent: 222 15% 16%;
+    --accent-foreground: 210 20% 90%;
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 222 14% 18%;
+    --input: 222 14% 18%;
+    --ring: 210 20% 70%;
+    --sidebar: 222 18% 7%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Smooth color transitions on theme change */
+  *,
+  *::before,
+  *::after {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
+  /* But don't animate transforms or opacity globally */
+  button,
+  a,
+  [role="button"] {
+    transition-property: background-color, border-color, color, opacity, transform, box-shadow;
+    transition-duration: 150ms;
+  }
+}
+
+@layer utilities {
+  .bg-sidebar {
+    background-color: hsl(var(--sidebar));
+  }
+
+  /* Fade-in for page content */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease forwards;
+  }
+
+  /* Slide up + fade for cards/rows */
+  .animate-slide-up {
+    animation: slideUp 0.35s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Stagger helper classes */
+  .stagger-1 { animation-delay: 50ms; }
+  .stagger-2 { animation-delay: 100ms; }
+  .stagger-3 { animation-delay: 150ms; }
+  .stagger-4 { animation-delay: 200ms; }
+
+  /* Card hover lift */
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    @apply -translate-y-0.5 shadow-md;
+  }
+}
