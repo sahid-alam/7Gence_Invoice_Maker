@@ -15,7 +15,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const [invoiceRes, itemsRes, driveTokenRes] = await Promise.all([
     supabase
       .from("invoices")
-      .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+      .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
       .eq("id", id)
       .single(),
     supabase
@@ -71,7 +71,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               Download PDF
             </a>
           </Button>
-          {driveConnected && <ExportToDriveButton invoiceId={id} />}
+          {driveConnected && <ExportToDriveButton invoiceId={id} driveUrl={invoice.drive_url} />}
           <InvoiceActions invoice={invoice} />
         </div>
       </div>

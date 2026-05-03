@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/currency";
-import { ExportToDriveButton } from "@/components/integrations/export-receipt-to-drive-button";
+import { ExportReceiptToDriveButton } from "@/components/integrations/export-receipt-to-drive-button";
 import { DeleteReceiptButton } from "@/components/receipts/delete-receipt-button";
 import { ArrowLeft, Download } from "lucide-react";
 
@@ -15,7 +15,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
   const [receiptRes, driveTokenRes] = await Promise.all([
     supabase
       .from("receipts")
-      .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+      .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
       .eq("id", id)
       .single(),
     supabase
@@ -49,7 +49,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
               Download PDF
             </a>
           </Button>
-          {driveConnected && <ExportToDriveButton receiptId={id} />}
+          {driveConnected && <ExportReceiptToDriveButton receiptId={id} driveUrl={receipt.drive_url} />}
           <DeleteReceiptButton receiptId={id} receiptNumber={receipt.receipt_number} />
         </div>
       </div>

@@ -117,6 +117,9 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
   const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice }) as any);
 
   const url = await uploadPdfToDrive(accessToken, pdfBuffer, `Invoice-${invoice.invoice_number}.pdf`);
+
+  await supabase.from("invoices").update({ drive_url: url }).eq("id", invoiceId).eq("owner_id", user.id);
+
   return { url };
 }
 
@@ -167,6 +170,9 @@ export async function exportReceiptToDrive(receiptId: string): Promise<{ url: st
   const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice: receiptData }) as any);
 
   const url = await uploadPdfToDrive(accessToken, pdfBuffer, `Receipt-${receipt.receipt_number}.pdf`);
+
+  await supabase.from("receipts").update({ drive_url: url }).eq("id", receiptId).eq("owner_id", user.id);
+
   return { url };
 }
 

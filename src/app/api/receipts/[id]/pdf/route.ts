@@ -13,17 +13,20 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return new Response("Unauthorized", { status: 401 });
+
   const { data: receipt } = await supabase
     .from("receipts")
     .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
     .eq("id", id)
+    .eq("owner_id", user.id)
     .single();
 
   if (!receipt) return notFound();
 
   registerFonts();
 
-  // Build a receipt "invoice" data structure for the template
   const receiptData = {
     invoice_number: receipt.receipt_number,
     issue_date: receipt.payment_date,
