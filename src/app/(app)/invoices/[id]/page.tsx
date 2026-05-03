@@ -70,8 +70,13 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
       <Separator />
 
-      {/* Invoice Preview */}
-      <div className="rounded-lg border border-border p-8 space-y-8 bg-white">
+      {/* Invoice Preview — always light-mode colors regardless of app theme */}
+      <div style={{
+        "--foreground": "222 15% 10%",
+        "--muted-foreground": "220 9% 46%",
+        "--border": "220 13% 91%",
+      } as React.CSSProperties}>
+      <div className="rounded-lg border border-border p-8 space-y-8 bg-white shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.55)]">
         {/* Title */}
         <div className="flex justify-between items-start">
           <div>
@@ -220,6 +225,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );
