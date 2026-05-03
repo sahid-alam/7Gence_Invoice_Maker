@@ -21,10 +21,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Send, CheckCircle2, XCircle, Trash2, Mail } from "lucide-react";
+import { MoreHorizontal, Send, CheckCircle2, XCircle, Trash2, Mail, Pencil } from "lucide-react";
 import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
 import { sendInvoiceEmail } from "@/actions/email";
 import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
 
 interface Invoice {
   id: string;
@@ -104,14 +105,21 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {invoice.status === "draft" && (
-            <DropdownMenuItem
-              onClick={() => handleAction(
-                () => updateInvoiceStatus(invoice.id, "sent"),
-                "Invoice marked as sent"
-              )}
-            >
-              <Send size={14} className="mr-2" /> Mark as Sent
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem asChild>
+                <Link href={`/invoices/${invoice.id}/edit`}>
+                  <Pencil size={14} className="mr-2" /> Edit Invoice
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleAction(
+                  () => updateInvoiceStatus(invoice.id, "sent"),
+                  "Invoice marked as sent"
+                )}
+              >
+                <Send size={14} className="mr-2" /> Mark as Sent
+              </DropdownMenuItem>
+            </>
           )}
           {invoice.status === "sent" && (
             <>

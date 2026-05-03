@@ -27,20 +27,20 @@ export default async function IntegrationsPage({
   const emailIntro = settingsRes.data?.email_intro ?? "";
 
   return (
-    <div className="p-8 max-w-2xl space-y-6">
+    <div className="p-8 space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Integrations</h2>
-        <p className="text-muted-foreground">Connect external services</p>
+        <p className="text-muted-foreground">Connect external services to extend your workflow</p>
       </div>
 
       {connected === "google_drive" && (
-        <div className="rounded-md bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm">
+        <div className="rounded-md bg-green-50 border border-green-200 text-green-800 px-4 py-3 text-sm dark:bg-green-950/30 dark:border-green-900 dark:text-green-400">
           Google connected — Drive export and Gmail sending are now active.
         </div>
       )}
       {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-800 px-4 py-3 text-sm">
-          {error === "google_not_configured" && "Google OAuth credentials are not set up on the server. See the setup guide."}
+        <div className="rounded-md bg-red-50 border border-red-200 text-red-800 px-4 py-3 text-sm dark:bg-red-950/30 dark:border-red-900 dark:text-red-400">
+          {error === "google_not_configured" && "Google OAuth credentials are not set up on the server."}
           {error === "google_oauth_denied" && "Google access was denied."}
           {error === "google_oauth_invalid_state" && "OAuth state mismatch — please try connecting again."}
           {error === "google_token_exchange_failed" && "Failed to exchange Google auth code for tokens."}
@@ -49,12 +49,15 @@ export default async function IntegrationsPage({
         </div>
       )}
 
-      <GoogleIntegrationCard
-        connected={driveConnected}
-        gmailUser={gmailUser}
-        emailSubject={emailSubject}
-        emailIntro={emailIntro}
-      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <GoogleIntegrationCard
+          connected={driveConnected}
+          gmailUser={gmailUser}
+          emailSubject={emailSubject}
+          emailIntro={emailIntro}
+        />
+        {/* Future integrations go here as additional tiles */}
+      </div>
     </div>
   );
 }

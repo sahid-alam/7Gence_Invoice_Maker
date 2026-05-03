@@ -1,6 +1,3 @@
-"use client";
-
-import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 interface Profile {
@@ -16,12 +13,9 @@ interface ProfileFilterProps {
 }
 
 export function ProfileFilter({ profiles, selectedProfile, basePath, extraParams = {} }: ProfileFilterProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   if (profiles.length <= 1) return null;
 
-  function buildHref(profileId: string) {
+  function buildHref(profileId?: string) {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(extraParams)) {
       if (v) params.set(k, v);
@@ -31,38 +25,31 @@ export function ProfileFilter({ profiles, selectedProfile, basePath, extraParams
     return `${basePath}${qs ? `?${qs}` : ""}`;
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    router.push(buildHref(e.target.value));
-  }
-
-  const clearHref = (() => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("profile");
-    const qs = params.toString();
-    return `${basePath}${qs ? `?${qs}` : ""}`;
-  })();
-
   return (
-    <div className="flex items-center gap-2">
-      <label htmlFor="profile-filter" className="text-sm text-muted-foreground whitespace-nowrap">
-        Profile:
-      </label>
-      <select
-        id="profile-filter"
-        value={selectedProfile ?? ""}
-        onChange={handleChange}
-        className="text-sm border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+    <div className="flex items-center gap-2 flex-wrap">
+      <Link
+        href={buildHref()}
+        className={`inline-flex items-center h-7 px-3 rounded-full text-xs font-medium transition-colors border ${
+          !selectedProfile
+            ? "bg-foreground text-background border-foreground"
+            : "text-muted-foreground border-border hover:text-foreground hover:border-foreground/50"
+        }`}
       >
-        <option value="">All profiles</option>
-        {profiles.map((p) => (
-          <option key={p.id} value={p.id}>{p.display_name}</option>
-        ))}
-      </select>
-      {selectedProfile && (
-        <Link href={clearHref} className="text-xs text-muted-foreground hover:text-foreground">
-          Clear
+        All profiles
+      </Link>
+      {profiles.map((p) => (
+        <Link
+          key={p.id}
+          href={buildHref(p.id)}
+          className={`inline-flex items-center h-7 px-3 rounded-full text-xs font-medium transition-colors border ${
+            selectedProfile === p.id
+              ? "bg-foreground text-background border-foreground"
+              : "text-muted-foreground border-border hover:text-foreground hover:border-foreground/50"
+          }`}
+        >
+          {p.display_name}
         </Link>
-      )}
+      ))}
     </div>
   );
 }

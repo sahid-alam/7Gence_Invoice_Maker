@@ -75,7 +75,7 @@ export default async function DashboardPage() {
       )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card className="card-hover animate-slide-up stagger-1">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <FileText size={14} /> Draft
@@ -85,7 +85,7 @@ export default async function DashboardPage() {
             <p className="text-3xl font-bold">{stats.draft}</p>
           </CardContent>
         </Card>
-        <Card className="card-hover animate-slide-up stagger-2">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <FileText size={14} /> Sent
@@ -95,7 +95,7 @@ export default async function DashboardPage() {
             <p className="text-3xl font-bold">{stats.sent}</p>
           </CardContent>
         </Card>
-        <Card className="card-hover animate-slide-up stagger-3 border-amber-200/60 dark:border-amber-900/40">
+        <Card className="border-amber-200/60 dark:border-amber-900/40">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-amber-600 flex items-center gap-2">
               <AlertCircle size={14} /> Overdue
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
             <p className="text-3xl font-bold text-amber-600">{stats.overdue}</p>
           </CardContent>
         </Card>
-        <Card className="card-hover animate-slide-up stagger-4 border-green-200/60 dark:border-green-900/40">
+        <Card className="border-green-200/60 dark:border-green-900/40">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
               <CheckCircle2 size={14} /> Paid

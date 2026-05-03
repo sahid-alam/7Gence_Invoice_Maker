@@ -79,12 +79,22 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       <Separator />
 
       {/* Invoice Preview — all colors hardcoded so it looks like paper in both themes */}
-      <div className="rounded-lg border border-gray-200 p-8 space-y-8 bg-white text-gray-900 shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.5)]">
+      {(() => {
+        const isCream = invoice.template_id === "cream-serif";
+        const bg = isCream ? "bg-[#F5F0E8]" : "bg-white";
+        const divider = isCream ? "bg-[#D4CFC5]" : "bg-gray-200";
+        const border = isCream ? "border-[#D4CFC5]" : "border-gray-200";
+        return (
+      <div className={`rounded-lg border ${border} p-8 space-y-8 ${bg} text-gray-900 shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.5)]`}>
         {/* Title */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-4xl font-bold tracking-widest uppercase text-gray-900">Invoice</h1>
-            <p className="text-gray-400 mt-1 font-mono text-sm">#{invoice.invoice_number}</p>
+            {isCream ? (
+              <h1 className="text-5xl font-bold font-serif text-gray-900 leading-none">Invoice</h1>
+            ) : (
+              <h1 className="text-4xl font-bold tracking-widest uppercase text-gray-900">Invoice</h1>
+            )}
+            <p className={`mt-2 text-sm ${isCream ? "text-[#777]" : "text-gray-400 font-mono"}`}>#{invoice.invoice_number}</p>
           </div>
           <div className="text-right text-sm text-gray-600">
             <p>Issued: {invoice.issue_date}</p>
@@ -94,7 +104,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
 
-        <div className="h-px bg-gray-200" />
+        <div className={`h-px ${divider}`} />
 
         {/* From / To */}
         <div className="grid grid-cols-2 gap-8">
@@ -123,19 +133,19 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
 
-        <div className="h-px bg-gray-200" />
+        <div className={`h-px ${divider}`} />
 
         {/* Items */}
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-200">
+            <tr className={isCream ? "border-b border-[#D4CFC5]" : "border-b border-gray-200"}>
               <th className="text-left py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Description</th>
               <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Qty</th>
               <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Price</th>
               <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Total</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className={isCream ? "divide-y divide-[#D4CFC5]" : "divide-y divide-gray-100"}>
             {items.map((item) => (
               <tr key={item.id}>
                 <td className="py-3 text-gray-900">{item.description}</td>
@@ -180,7 +190,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 <span className="text-gray-900">{formatCurrency(invoice.tax_amount, invoice.currency)}</span>
               </div>
             )}
-            <div className="h-px bg-gray-200" />
+            <div className={`h-px ${divider}`} />
             <div className="flex justify-between font-bold text-base text-gray-900">
               <span>Total Due</span>
               <span>{formatCurrency(invoice.total, invoice.currency)}</span>
@@ -191,7 +201,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         {/* Payment Method */}
         {pm && (
           <>
-            <div className="h-px bg-gray-200" />
+            <div className={`h-px ${divider}`} />
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Payment Method</p>
               {pm.type === "crypto_wallet" && (
@@ -223,7 +233,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         {/* Notes */}
         {invoice.notes && (
           <>
-            <div className="h-px bg-gray-200" />
+            <div className={`h-px ${divider}`} />
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Notes</p>
               <p className="text-sm text-gray-500">{invoice.notes}</p>
@@ -231,6 +241,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </>
         )}
       </div>
+      );
+    })()}
     </div>
   );
 }

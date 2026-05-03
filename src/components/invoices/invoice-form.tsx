@@ -16,7 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
-import { createInvoice, type CreateInvoiceInput } from "@/actions/invoices";
+import { createInvoice, updateInvoice, type CreateInvoiceInput } from "@/actions/invoices";
 import { calculateTax } from "@/lib/tax-calculator";
 import { formatCurrency, formatAmount } from "@/lib/currency";
 import { GST_RATES, type TaxType, type CurrencyCode } from "@/types/app.types";
@@ -59,63 +59,93 @@ const TEMPLATES = [
   { id: "cream-serif", label: "Cream – Modern Serif" },
 ];
 
+interface InitialValues {
+  invoiceId: string;
+  profileId: string;
+  currency: CurrencyCode;
+  templateId: string;
+  clientId?: string;
+  clientName: string;
+  clientCompany: string;
+  clientEmail: string;
+  clientAddress: string;
+  clientGstin: string;
+  issueDate: string;
+  dueDate: string;
+  items: LineItem[];
+  taxType: TaxType;
+  taxRate: number;
+  discountPercent: number;
+  paymentMethodId: string;
+  notes: string;
+  terms: string;
+}
+
 export function InvoiceForm({
   profiles,
   clients,
+  initialValues,
 }: {
   profiles: Profile[];
   clients: ClientOption[];
+  initialValues?: InitialValues;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const isEditing = !!initialValues;
 
   const defaultProfile = profiles[0];
 
-  const [profileId, setProfileId] = useState(defaultProfile?.id ?? "");
+  const [profileId, setProfileId] = useState(initialValues?.profileId ?? defaultProfile?.id ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(
-    (defaultProfile?.default_currency as CurrencyCode) ?? "USD"
+    initialValues?.currency ?? (defaultProfile?.default_currency as CurrencyCode) ?? "USD"
   );
-  const [templateId, setTemplateId] = useState(defaultProfile?.default_template_id ?? "white-caps");
+  const [templateId, setTemplateId] = useState(initialValues?.templateId ?? defaultProfile?.default_template_id ?? "white-caps");
 
   // Client fields
-  const [selectedClientId, setSelectedClientId] = useState("__manual__");
-  const [clientName, setClientName] = useState("");
-  const [clientCompany, setClientCompany] = useState("");
-  const [clientEmail, setClientEmail] = useState("");
-  const [clientAddress, setClientAddress] = useState("");
-  const [clientGstin, setClientGstin] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState(initialValues?.clientId ?? "__manual__");
+  const [clientName, setClientName] = useState(initialValues?.clientName ?? "");
+  const [clientCompany, setClientCompany] = useState(initialValues?.clientCompany ?? "");
+  const [clientEmail, setClientEmail] = useState(initialValues?.clientEmail ?? "");
+  const [clientAddress, setClientAddress] = useState(initialValues?.clientAddress ?? "");
+  const [clientGstin, setClientGstin] = useState(initialValues?.clientGstin ?? "");
 
   // Dates
   const today = new Date().toISOString().split("T")[0];
-  const [issueDate, setIssueDate] = useState(today);
-  const [dueDate, setDueDate] = useState("");
+  const [issueDate, setIssueDate] = useState(initialValues?.issueDate ?? today);
+  const [dueDate, setDueDate] = useState(initialValues?.dueDate ?? "");
 
   // Line items
-  const [items, setItems] = useState<LineItem[]>([
-    { id: crypto.randomUUID(), description: "", quantity: 1, unit_price: 0 },
-  ]);
+  const [items, setItems] = useState<LineItem[]>(
+    initialValues?.items ?? [{ id: crypto.randomUUID(), description: "", quantity: 1, unit_price: 0 }]
+  );
 
   // Tax
-  const [taxType, setTaxType] = useState<TaxType>("none");
-  const [taxRate, setTaxRate] = useState(18);
-  const [discountPercent, setDiscountPercent] = useState(0);
+  const [taxType, setTaxType] = useState<TaxType>(initialValues?.taxType ?? "none");
+  const [taxRate, setTaxRate] = useState(initialValues?.taxRate ?? 18);
+  const [discountPercent, setDiscountPercent] = useState(initialValues?.discountPercent ?? 0);
 
   // Payment
-  const [paymentMethodId, setPaymentMethodId] = useState("__none__");
-  const [notes, setNotes] = useState("");
-  const [terms, setTerms] = useState("");
+  const [paymentMethodId, setPaymentMethodId] = useState(initialValues?.paymentMethodId ?? "__none__");
+  const [notes, setNotes] = useState(initialValues?.notes ?? "");
+  const [terms, setTerms] = useState(initialValues?.terms ?? "");
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
 
-  // Load payment methods for the default profile on mount
+  // Load payment methods for the initial profile on mount
   useEffect(() => {
-    if (!defaultProfile?.id) return;
-    fetch(`/api/payment-methods?profile_id=${defaultProfile.id}`)
+    const pid = initialValues?.profileId ?? defaultProfile?.id;
+    if (!pid) return;
+    fetch(`/api/payment-methods?profile_id=${pid}`)
       .then((r) => r.ok ? r.json() : [])
       .then((data: (PaymentMethod & { is_default: boolean })[]) => {
         setPaymentMethods(data);
-        const def = data.find((pm) => pm.is_default);
-        setPaymentMethodId(def?.id ?? "__none__");
+        if (initialValues?.paymentMethodId && initialValues.paymentMethodId !== "__none__") {
+          setPaymentMethodId(initialValues.paymentMethodId);
+        } else {
+          const def = data.find((pm) => pm.is_default);
+          setPaymentMethodId(def?.id ?? "__none__");
+        }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -218,9 +248,13 @@ export function InvoiceForm({
           unit_price: i.unit_price,
         })),
       };
-      await createInvoice(input);
+      if (isEditing) {
+        await updateInvoice(initialValues.invoiceId, input);
+      } else {
+        await createInvoice(input);
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create invoice");
+      toast.error(err instanceof Error ? err.message : isEditing ? "Failed to update invoice" : "Failed to create invoice");
       setLoading(false);
     }
   }
@@ -586,7 +620,7 @@ export function InvoiceForm({
 
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={loading}>
-          {loading ? "Creating..." : "Create Invoice"}
+          {loading ? (isEditing ? "Saving..." : "Creating...") : (isEditing ? "Save Changes" : "Create Invoice")}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Cancel

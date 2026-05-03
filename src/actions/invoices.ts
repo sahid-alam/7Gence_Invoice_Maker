@@ -190,6 +190,97 @@ export async function updateInvoiceStatus(
   revalidatePath("/receipts");
 }
 
+export async function updateInvoice(id: string, input: CreateInvoiceInput) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("business_profiles")
+    .select("gstin, state, default_template_id")
+    .eq("id", input.business_profile_id)
+    .eq("owner_id", user.id)
+    .single();
+
+  let paymentSnapshot = null;
+  if (input.payment_method_id) {
+    const { data: pm } = await supabase
+      .from("payment_methods")
+      .select("*")
+      .eq("id", input.payment_method_id)
+      .eq("owner_id", user.id)
+      .single();
+    if (pm) paymentSnapshot = pm;
+  }
+
+  const subtotal = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+  const tax = calculateTax({
+    subtotal,
+    tax_type: input.tax_type,
+    tax_rate: input.tax_rate,
+    discount_percent: input.discount_percent,
+  });
+
+  const { error } = await supabase
+    .from("invoices")
+    .update({
+      business_profile_id: input.business_profile_id,
+      client_id: input.client_id || null,
+      client_name: input.client_name,
+      client_company: input.client_company || null,
+      client_email: input.client_email || null,
+      client_address: input.client_address || null,
+      client_gstin: input.client_gstin || null,
+      issue_date: input.issue_date,
+      due_date: input.due_date || null,
+      currency: input.currency,
+      subtotal: tax.subtotal,
+      tax_type: input.tax_type,
+      tax_rate: input.tax_rate / 100,
+      cgst_rate: input.tax_type === "cgst_sgst" ? input.tax_rate / 2 / 100 : null,
+      sgst_rate: input.tax_type === "cgst_sgst" ? input.tax_rate / 2 / 100 : null,
+      igst_rate: input.tax_type === "igst" ? input.tax_rate / 100 : null,
+      tax_amount: tax.tax_amount,
+      discount_percent: input.discount_percent / 100,
+      discount_amount: tax.discount_amount,
+      total: tax.total,
+      payment_method_id: input.payment_method_id || null,
+      payment_method_snapshot: paymentSnapshot,
+      template_id: input.template_id || profile?.default_template_id || "white-caps",
+      sender_gstin: profile?.gstin || null,
+      sender_state: profile?.state || null,
+      notes: input.notes || null,
+      terms: input.terms || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .eq("status", "draft");
+
+  if (error) throw new Error(error.message);
+
+  // Replace line items
+  await supabase.from("invoice_items").delete().eq("invoice_id", id).eq("owner_id", user.id);
+  if (input.items.length > 0) {
+    const { error: itemsError } = await supabase.from("invoice_items").insert(
+      input.items.map((item, idx) => ({
+        invoice_id: id,
+        owner_id: user.id,
+        sort_order: idx,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      }))
+    );
+    if (itemsError) throw new Error(itemsError.message);
+  }
+
+  revalidatePath(`/invoices/${id}`);
+  revalidatePath("/invoices");
+  revalidatePath("/dashboard");
+  redirect(`/invoices/${id}`);
+}
+
 export async function deleteInvoice(id: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

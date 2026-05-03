@@ -90,12 +90,22 @@ export function TemplateCreamSerif({ invoice }: { invoice: InvoiceData }) {
 
         <View style={s.divider} />
 
-        {/* Billed To */}
-        <View>
-          <Text style={s.label}>Billed to:</Text>
-          <Text style={s.name}>{invoice.client_company || invoice.client_name}</Text>
-          {invoice.client_address && <Text style={s.line}>{invoice.client_address}</Text>}
-          {invoice.client_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.client_gstin}</Text>}
+        {/* From / To */}
+        <View style={{ flexDirection: "row", gap: 40 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.label}>From</Text>
+            <Text style={s.name}>{profile?.display_name ?? ""}</Text>
+            {profile?.address_line1 && <Text style={s.line}>{profile.address_line1}</Text>}
+            {profile?.city && <Text style={s.line}>{profile.city}</Text>}
+            {profile?.email && <Text style={s.line}>{profile.email}</Text>}
+            {invoice.sender_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.sender_gstin}</Text>}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.label}>Billed To</Text>
+            <Text style={s.name}>{invoice.client_company || invoice.client_name}</Text>
+            {invoice.client_address && <Text style={s.line}>{invoice.client_address}</Text>}
+            {invoice.client_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.client_gstin}</Text>}
+          </View>
         </View>
 
         <View style={s.divider} />
@@ -166,11 +176,7 @@ export function TemplateCreamSerif({ invoice }: { invoice: InvoiceData }) {
             ) : null}
           </View>
           <View style={s.footerRight}>
-            <Text style={s.name}>{profile?.display_name ?? ""}</Text>
-            {profile?.city && <Text style={s.line}>{profile.city}, India</Text>}
-            {profile?.phone && <Text style={s.line}>{profile.phone}</Text>}
-            {profile?.email && <Text style={s.line}>{profile.email}</Text>}
-            {invoice.sender_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.sender_gstin}</Text>}
+            {invoice.notes && <Text style={[s.line, { fontStyle: "italic", maxWidth: 200 }]}>{invoice.notes}</Text>}
           </View>
         </View>
         <View style={s.divider} />
