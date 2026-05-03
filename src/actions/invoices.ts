@@ -207,3 +207,20 @@ export async function deleteInvoice(id: string) {
   revalidatePath("/dashboard");
   redirect("/invoices");
 }
+
+export async function deleteInvoiceForce(id: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { error } = await supabase
+    .from("invoices")
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", user.id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/invoices");
+  revalidatePath("/dashboard");
+  revalidatePath("/receipts");
+}

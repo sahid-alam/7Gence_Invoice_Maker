@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Plus, Users } from "lucide-react";
+import { DeleteClientButton } from "@/components/clients/delete-client-button";
 
 export default async function ClientsPage() {
   const supabase = await createClient();
@@ -46,6 +47,7 @@ export default async function ClientsPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Company</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Email</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Location</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -58,6 +60,9 @@ export default async function ClientsPage() {
                   <td className="px-4 py-3 text-muted-foreground">{c.email ?? "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {[c.city, c.country].filter(Boolean).join(", ") || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <DeleteClientButton clientId={c.id} clientName={c.name} showLabel={false} />
                   </td>
                 </tr>
               ))}

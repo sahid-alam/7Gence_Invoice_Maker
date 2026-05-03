@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local tool config
 .mcp.json
+
+# local scripts that contain secrets
+setup_env.sh

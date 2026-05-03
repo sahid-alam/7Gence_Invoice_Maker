@@ -3,13 +3,14 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
+import { ProfileFilter } from "@/components/filters/profile-filter";
 
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; profile?: string }>;
 }) {
-  const { status } = await searchParams;
+  const { status, profile } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -17,7 +18,7 @@ export default async function InvoicesPage({
 
   let query = supabase
     .from("invoices")
-    .select("id, invoice_number, client_name, total, currency, status, issue_date, due_date")
+    .select("id, invoice_number, client_name, total, currency, status, issue_date, due_date, business_profile_id")
     .eq("owner_id", user!.id)
     .order("created_at", { ascending: false });
 
@@ -27,7 +28,20 @@ export default async function InvoicesPage({
     query = query.eq("status", status);
   }
 
-  const { data: invoices } = await query;
+  if (profile) {
+    query = query.eq("business_profile_id", profile);
+  }
+
+  const [profilesRes, { data: invoices }] = await Promise.all([
+    supabase
+      .from("business_profiles")
+      .select("id, display_name")
+      .eq("owner_id", user!.id)
+      .order("display_name"),
+    query,
+  ]);
+
+  const profiles = profilesRes.data ?? [];
 
   const tabs = [
     { key: "all", label: "All" },
@@ -52,11 +66,18 @@ export default async function InvoicesPage({
         </Button>
       </div>
 
+      <ProfileFilter
+        profiles={profiles}
+        selectedProfile={profile}
+        basePath="/invoices"
+        extraParams={{ status }}
+      />
+
       <div className="flex gap-1 border-b border-border">
         {tabs.map((tab) => (
           <Link
             key={tab.key}
-            href={`/invoices?status=${tab.key}`}
+            href={`/invoices?status=${tab.key}${profile ? `&profile=${profile}` : ""}`}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === tab.key
                 ? "border-foreground text-foreground"

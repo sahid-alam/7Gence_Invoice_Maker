@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/currency";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
+import { ExportToDriveButton } from "@/components/integrations/export-to-drive-button";
 import { ArrowLeft, Download } from "lucide-react";
 
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const [invoiceRes, itemsRes] = await Promise.all([
+  const [invoiceRes, itemsRes, driveTokenRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
@@ -22,12 +23,18 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .select("*")
       .eq("invoice_id", id)
       .order("sort_order"),
+    supabase
+      .from("oauth_tokens")
+      .select("id")
+      .eq("provider", "google_drive")
+      .single(),
   ]);
 
   if (!invoiceRes.data) notFound();
 
   const invoice = invoiceRes.data;
   const items = itemsRes.data ?? [];
+  const driveConnected = !!driveTokenRes.data;
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = invoice.status === "sent" && invoice.due_date < today;
 
@@ -64,6 +71,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               Download PDF
             </a>
           </Button>
+          {driveConnected && <ExportToDriveButton invoiceId={id} />}
           <InvoiceActions invoice={invoice} />
         </div>
       </div>

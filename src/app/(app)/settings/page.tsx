@@ -11,7 +11,7 @@ export default async function SettingsPage() {
     <div className="p-8 max-w-2xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
-        <p className="text-muted-foreground">Account and app settings</p>
+        <p className="text-muted-foreground">Account settings</p>
       </div>
 
       <Card>

@@ -21,14 +21,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Send, CheckCircle2, XCircle, Trash2 } from "lucide-react";
-import { updateInvoiceStatus, deleteInvoice } from "@/actions/invoices";
+import { MoreHorizontal, Send, CheckCircle2, XCircle, Trash2, Mail } from "lucide-react";
+import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
+import { sendInvoiceEmail } from "@/actions/email";
 import { createClient } from "@/lib/supabase/client";
 
 interface Invoice {
   id: string;
   status: string;
   total: number;
+  client_email?: string | null;
 }
 
 export function InvoiceActions({ invoice }: { invoice: Invoice }) {
@@ -46,6 +48,18 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    setLoading(true);
+    try {
+      await sendInvoiceEmail(invoice.id);
+      toast.success("Email sent to client");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send email");
     } finally {
       setLoading(false);
     }
@@ -71,7 +85,7 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
       return;
     }
     try {
-      await deleteInvoice(invoice.id);
+      await deleteInvoiceForce(invoice.id);
       toast.success("Invoice deleted");
       router.push("/invoices");
     } catch (err) {
@@ -100,14 +114,21 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
             </DropdownMenuItem>
           )}
           {invoice.status === "sent" && (
-            <DropdownMenuItem
-              onClick={() => handleAction(
-                () => updateInvoiceStatus(invoice.id, "paid", invoice.total),
-                "Invoice marked as paid — receipt created"
+            <>
+              <DropdownMenuItem
+                onClick={() => handleAction(
+                  () => updateInvoiceStatus(invoice.id, "paid", invoice.total),
+                  "Invoice marked as paid — receipt created"
+                )}
+              >
+                <CheckCircle2 size={14} className="mr-2 text-green-600" /> Mark as Paid
+              </DropdownMenuItem>
+              {invoice.client_email && (
+                <DropdownMenuItem onClick={handleSendEmail}>
+                  <Mail size={14} className="mr-2 text-blue-500" /> Email Client
+                </DropdownMenuItem>
               )}
-            >
-              <CheckCircle2 size={14} className="mr-2 text-green-600" /> Mark as Paid
-            </DropdownMenuItem>
+            </>
           )}
           {(invoice.status === "draft" || invoice.status === "sent") && (
             <>

@@ -4,25 +4,37 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/currency";
+import { ExportToDriveButton } from "@/components/integrations/export-receipt-to-drive-button";
+import { DeleteReceiptButton } from "@/components/receipts/delete-receipt-button";
 import { ArrowLeft, Download } from "lucide-react";
 
 export default async function ReceiptDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: receipt } = await supabase
-    .from("receipts")
-    .select(`*, business_profiles(display_name, email, phone, address_line1, city)`)
-    .eq("id", id)
-    .single();
+  const [receiptRes, driveTokenRes] = await Promise.all([
+    supabase
+      .from("receipts")
+      .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("oauth_tokens")
+      .select("id")
+      .eq("provider", "google_drive")
+      .single(),
+  ]);
 
-  if (!receipt) notFound();
+  if (!receiptRes.data) notFound();
+  const receipt = receiptRes.data;
+  const driveConnected = !!driveTokenRes.data;
 
   const pm = receipt.payment_method_snapshot as Record<string, string> | null;
   const profile = receipt.business_profiles as Record<string, string> | null;
 
   return (
-    <div className="p-8 max-w-3xl space-y-6">
+    <div className="p-8 max-w-4xl space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" asChild>
@@ -30,79 +42,115 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
           </Button>
           <h2 className="text-xl font-bold font-mono">{receipt.receipt_number}</h2>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <a href={`/api/receipts/${id}/pdf`} target="_blank" rel="noopener noreferrer">
-            <Download size={14} className="mr-2" />
-            Download PDF
-          </a>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <a href={`/api/receipts/${id}/pdf`} target="_blank" rel="noopener noreferrer">
+              <Download size={14} className="mr-2" />
+              Download PDF
+            </a>
+          </Button>
+          {driveConnected && <ExportToDriveButton receiptId={id} />}
+          <DeleteReceiptButton receiptId={id} receiptNumber={receipt.receipt_number} />
+        </div>
       </div>
 
       <Separator />
 
-      <div className="rounded-lg border border-border p-8 space-y-6 bg-white">
+      {/* Receipt Preview — hardcoded white like invoice */}
+      <div className="rounded-lg border border-gray-200 p-8 space-y-8 bg-white text-gray-900 shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.5)]">
+        {/* Title row */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold tracking-widest uppercase">Receipt</h1>
-            <p className="text-muted-foreground font-mono mt-1">#{receipt.receipt_number}</p>
+            <h1 className="text-4xl font-bold tracking-widest uppercase text-gray-900">Receipt</h1>
+            <p className="text-gray-400 mt-1 font-mono text-sm">#{receipt.receipt_number}</p>
           </div>
-          <div className="text-right text-sm">
-            <p className="text-muted-foreground">Payment Date</p>
-            <p className="font-semibold">{receipt.payment_date}</p>
+          <div className="text-right text-sm text-gray-600">
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Payment Date</p>
+            <p className="font-semibold text-gray-900 mt-0.5">{receipt.payment_date}</p>
           </div>
         </div>
 
-        <Separator />
+        <div className="h-px bg-gray-200" />
 
+        {/* From / Received From */}
         <div className="grid grid-cols-2 gap-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">From</p>
-            <p className="font-semibold">{profile?.display_name}</p>
-            {profile?.address_line1 && <p className="text-sm text-muted-foreground">{profile.address_line1}</p>}
-            {profile?.email && <p className="text-sm text-muted-foreground">{profile.email}</p>}
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">From</p>
+            <p className="font-semibold text-gray-900">{profile?.display_name}</p>
+            {profile?.address_line1 && <p className="text-sm text-gray-500">{profile.address_line1}</p>}
+            {profile?.city && <p className="text-sm text-gray-500">{profile.city}</p>}
+            {profile?.email && <p className="text-sm text-gray-500">{profile.email}</p>}
+            {profile?.gstin && <p className="text-xs text-gray-400 mt-1">GSTIN: {profile.gstin}</p>}
           </div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Received From</p>
-            <p className="font-semibold">{receipt.client_name}</p>
-            {receipt.client_company && <p className="text-sm text-muted-foreground">{receipt.client_company}</p>}
-            {receipt.client_address && <p className="text-sm text-muted-foreground">{receipt.client_address}</p>}
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Received From</p>
+            <p className="font-semibold text-gray-900">{receipt.client_name}</p>
+            {receipt.client_company && <p className="text-sm text-gray-500">{receipt.client_company}</p>}
+            {receipt.client_address && <p className="text-sm text-gray-500">{receipt.client_address}</p>}
           </div>
         </div>
 
-        <Separator />
+        <div className="h-px bg-gray-200" />
 
-        <div className="flex justify-between items-center">
+        {/* Amount received — prominent */}
+        <div className="flex justify-between items-end">
           <div>
-            <p className="text-sm text-muted-foreground">Payment received for</p>
-            {receipt.invoice_id && (
-              <p className="text-sm">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Payment For</p>
+            {receipt.invoice_id ? (
+              <p className="text-sm text-gray-600">
                 Invoice{" "}
-                <Link href={`/invoices/${receipt.invoice_id}`} className="underline">
-                  #{receipt.receipt_number.replace("REC-", "")}
+                <Link
+                  href={`/invoices/${receipt.invoice_id}`}
+                  className="underline text-gray-900 hover:text-gray-600"
+                >
+                  #{receipt.receipt_number.replace("REC-", "INV-")}
                 </Link>
               </p>
+            ) : (
+              <p className="text-sm text-gray-500">Standalone payment</p>
             )}
-            {receipt.notes && <p className="text-sm text-muted-foreground mt-1">{receipt.notes}</p>}
+            {receipt.notes && (
+              <p className="text-sm text-gray-500 mt-1">{receipt.notes}</p>
+            )}
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Amount Received</p>
-            <p className="text-3xl font-bold mt-1">{formatCurrency(receipt.amount, receipt.currency)}</p>
-            <p className="text-sm text-muted-foreground">{receipt.currency}</p>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">Amount Received</p>
+            <p className="text-4xl font-bold text-gray-900 mt-1">
+              {formatCurrency(receipt.amount, receipt.currency)}
+            </p>
+            <p className="text-sm text-gray-400 mt-0.5">{receipt.currency}</p>
           </div>
         </div>
 
+        {/* Payment method */}
         {pm && (
           <>
-            <Separator />
+            <div className="h-px bg-gray-200" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Via</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Via</p>
               {pm.type === "crypto_wallet" && (
-                <p className="text-sm">{pm.coin} ({pm.network}) — <span className="font-mono text-xs">{pm.wallet_address}</span></p>
+                <div className="text-sm space-y-1">
+                  <p className="font-medium text-gray-900">
+                    {pm.coin} ({pm.network})
+                  </p>
+                  <p className="font-mono text-xs break-all text-gray-500">{pm.wallet_address}</p>
+                  {pm.account_name && <p className="text-gray-500">Account: {pm.account_name}</p>}
+                </div>
               )}
               {pm.type === "bank_transfer" && (
-                <p className="text-sm">{pm.bank_name} — {pm.account_number}</p>
+                <div className="text-sm space-y-1">
+                  <p className="font-medium text-gray-900">Bank Transfer — {pm.bank_name}</p>
+                  <p className="text-gray-500">Account: {pm.account_number}</p>
+                  {pm.ifsc_code && <p className="text-gray-500">IFSC: {pm.ifsc_code}</p>}
+                  {pm.account_holder_name && <p className="text-gray-500">Name: {pm.account_holder_name}</p>}
+                </div>
               )}
-              {pm.type === "upi" && <p className="text-sm">UPI: {pm.upi_id}</p>}
+              {pm.type === "upi" && (
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">UPI</p>
+                  <p className="text-gray-500">{pm.upi_id}</p>
+                </div>
+              )}
             </div>
           </>
         )}

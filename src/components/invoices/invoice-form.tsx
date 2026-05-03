@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,7 +78,7 @@ export function InvoiceForm({
   const [templateId, setTemplateId] = useState(defaultProfile?.default_template_id ?? "white-caps");
 
   // Client fields
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("__manual__");
   const [clientName, setClientName] = useState("");
   const [clientCompany, setClientCompany] = useState("");
   const [clientEmail, setClientEmail] = useState("");
@@ -101,11 +101,24 @@ export function InvoiceForm({
   const [discountPercent, setDiscountPercent] = useState(0);
 
   // Payment
-  const [paymentMethodId, setPaymentMethodId] = useState("");
+  const [paymentMethodId, setPaymentMethodId] = useState("__none__");
   const [notes, setNotes] = useState("");
   const [terms, setTerms] = useState("");
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+
+  // Load payment methods for the default profile on mount
+  useEffect(() => {
+    if (!defaultProfile?.id) return;
+    fetch(`/api/payment-methods?profile_id=${defaultProfile.id}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: (PaymentMethod & { is_default: boolean })[]) => {
+        setPaymentMethods(data);
+        const def = data.find((pm) => pm.is_default);
+        setPaymentMethodId(def?.id ?? "__none__");
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleProfileChange = useCallback(
     async (newProfileId: string) => {
@@ -121,7 +134,7 @@ export function InvoiceForm({
         const data = await res.json();
         setPaymentMethods(data);
         const def = data.find((pm: PaymentMethod & { is_default: boolean }) => pm.is_default);
-        setPaymentMethodId(def?.id ?? "");
+        setPaymentMethodId(def?.id ?? "__none__");
       }
     },
     [profiles]
@@ -130,7 +143,7 @@ export function InvoiceForm({
   const handleClientSelect = useCallback(
     (clientId: string) => {
       setSelectedClientId(clientId);
-      if (!clientId) return;
+      if (clientId === "__manual__") return;
       const client = clients.find((c) => c.id === clientId);
       if (client) {
         setClientName(client.name);
@@ -183,7 +196,7 @@ export function InvoiceForm({
     try {
       const input: CreateInvoiceInput = {
         business_profile_id: profileId,
-        client_id: selectedClientId || undefined,
+        client_id: selectedClientId === "__manual__" ? undefined : selectedClientId,
         client_name: clientName,
         client_company: clientCompany || undefined,
         client_email: clientEmail || undefined,
@@ -195,7 +208,7 @@ export function InvoiceForm({
         tax_type: taxType,
         tax_rate: taxRate,
         discount_percent: discountPercent,
-        payment_method_id: paymentMethodId || undefined,
+        payment_method_id: paymentMethodId === "__none__" ? undefined : paymentMethodId,
         template_id: templateId,
         notes: notes || undefined,
         terms: terms || undefined,
@@ -257,7 +270,7 @@ export function InvoiceForm({
                 <SelectValue placeholder="Search clients..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— Enter manually —</SelectItem>
+                <SelectItem value="__manual__">— Enter manually —</SelectItem>
                 {clients.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.company_name ? `${c.company_name} (${c.name})` : c.name}
@@ -535,7 +548,7 @@ export function InvoiceForm({
                 <SelectValue placeholder="Select payment method" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— None —</SelectItem>
+                <SelectItem value="__none__">— None —</SelectItem>
                 {paymentMethods.map((pm) => (
                   <SelectItem key={pm.id} value={pm.id}>{pm.label}</SelectItem>
                 ))}

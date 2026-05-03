@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Trash2 } from "lucide-react";
-import { updateClient, deleteClientAction } from "@/actions/clients";
+import { ArrowLeft } from "lucide-react";
+import { updateClient } from "@/actions/clients";
+import { DeleteClientButton } from "@/components/clients/delete-client-button";
 import { formatCurrency } from "@/lib/currency";
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
@@ -51,22 +52,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             <p className="text-muted-foreground">{client.company_name}</p>
           )}
         </div>
-        <form action={deleteClientAction.bind(null, client.id)}>
-          <Button
-            type="submit"
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => {
-              if (!confirm("Delete this client? This cannot be undone.")) {
-                return;
-              }
-            }}
-          >
-            <Trash2 size={14} className="mr-1" />
-            Delete
-          </Button>
-        </form>
+        <DeleteClientButton clientId={client.id} clientName={client.name} />
       </div>
 
       <Separator />

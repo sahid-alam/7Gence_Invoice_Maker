@@ -1,18 +1,37 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { Receipt } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
+import { ProfileFilter } from "@/components/filters/profile-filter";
 
-export default async function ReceiptsPage() {
+export default async function ReceiptsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ profile?: string }>;
+}) {
+  const { profile } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: receipts } = await supabase
-    .from("receipts")
-    .select("id, receipt_number, client_name, amount, currency, payment_date, invoice_id")
-    .eq("owner_id", user!.id)
-    .order("created_at", { ascending: false });
+  const [profilesRes, receiptsRes] = await Promise.all([
+    supabase
+      .from("business_profiles")
+      .select("id, display_name")
+      .eq("owner_id", user!.id)
+      .order("display_name"),
+    (() => {
+      let q = supabase
+        .from("receipts")
+        .select("id, receipt_number, client_name, amount, currency, payment_date, invoice_id, business_profile_id")
+        .eq("owner_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (profile) q = q.eq("business_profile_id", profile);
+      return q;
+    })(),
+  ]);
+
+  const receipts = receiptsRes.data ?? [];
+  const profiles = profilesRes.data ?? [];
 
   return (
     <div className="p-8 space-y-6">
@@ -21,12 +40,15 @@ export default async function ReceiptsPage() {
           <h2 className="text-2xl font-bold tracking-tight">Receipts</h2>
           <p className="text-muted-foreground">Payment receipts for your records</p>
         </div>
-        <Button asChild>
-          <Link href="/receipts/new">New Receipt</Link>
-        </Button>
       </div>
 
-      {(receipts?.length ?? 0) === 0 ? (
+      <ProfileFilter
+        profiles={profiles}
+        selectedProfile={profile}
+        basePath="/receipts"
+      />
+
+      {receipts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
           <Receipt size={32} className="mx-auto text-muted-foreground mb-4" />
           <p className="font-medium">No receipts yet</p>
@@ -47,7 +69,7 @@ export default async function ReceiptsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {receipts?.map((r) => (
+              {receipts.map((r) => (
                 <tr key={r.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3">
                     <Link href={`/receipts/${r.id}`} className="font-mono font-medium hover:underline">

@@ -17,6 +17,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  Plug,
 } from "lucide-react";
 
 const navItems = [
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/receipts", label: "Receipts", icon: Receipt },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/profiles", label: "Profiles", icon: Building2 },
+  { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -40,7 +42,7 @@ export function Sidebar({ user }: { user: User }) {
   }
 
   return (
-    <aside className="w-56 flex flex-col min-h-screen bg-sidebar border-r border-border shrink-0">
+    <aside className="w-56 flex flex-col h-full bg-sidebar border-r border-border shrink-0">
       {/* Logo */}
       <div className="px-5 py-5 border-b border-border">
         <Link href="/dashboard" className="flex items-center gap-3 group">
