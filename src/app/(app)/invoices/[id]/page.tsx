@@ -70,73 +70,70 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
       <Separator />
 
-      {/* Invoice Preview — always light-mode colors regardless of app theme */}
-      <div style={{
-        "--foreground": "222 15% 10%",
-        "--muted-foreground": "220 9% 46%",
-        "--border": "220 13% 91%",
-      } as React.CSSProperties}>
-      <div className="rounded-lg border border-border p-8 space-y-8 bg-white shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.55)]">
+      {/* Invoice Preview — all colors hardcoded so it looks like paper in both themes */}
+      <div className="rounded-lg border border-gray-200 p-8 space-y-8 bg-white text-gray-900 shadow-sm dark:shadow-[0_4px_48px_rgba(0,0,0,0.5)]">
         {/* Title */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-4xl font-bold tracking-widest uppercase">Invoice</h1>
-            <p className="text-muted-foreground mt-1 font-mono">#{invoice.invoice_number}</p>
+            <h1 className="text-4xl font-bold tracking-widest uppercase text-gray-900">Invoice</h1>
+            <p className="text-gray-400 mt-1 font-mono text-sm">#{invoice.invoice_number}</p>
           </div>
-          <div className="text-right text-sm">
+          <div className="text-right text-sm text-gray-600">
             <p>Issued: {invoice.issue_date}</p>
-            {invoice.due_date && <p className={isOverdue ? "text-amber-600 font-medium" : ""}>Due: {invoice.due_date}</p>}
+            {invoice.due_date && (
+              <p className={isOverdue ? "text-amber-600 font-medium" : ""}>Due: {invoice.due_date}</p>
+            )}
           </div>
         </div>
 
-        <Separator />
+        <div className="h-px bg-gray-200" />
 
         {/* From / To */}
         <div className="grid grid-cols-2 gap-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">From</p>
-            <p className="font-semibold">{(invoice.business_profiles as Record<string, string>)?.display_name}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">From</p>
+            <p className="font-semibold text-gray-900">{(invoice.business_profiles as Record<string, string>)?.display_name}</p>
             {(invoice.business_profiles as Record<string, string>)?.address_line1 && (
-              <p className="text-sm text-muted-foreground">{(invoice.business_profiles as Record<string, string>).address_line1}</p>
+              <p className="text-sm text-gray-500">{(invoice.business_profiles as Record<string, string>).address_line1}</p>
             )}
             {(invoice.business_profiles as Record<string, string>)?.email && (
-              <p className="text-sm text-muted-foreground">{(invoice.business_profiles as Record<string, string>).email}</p>
+              <p className="text-sm text-gray-500">{(invoice.business_profiles as Record<string, string>).email}</p>
             )}
             {invoice.sender_gstin && (
-              <p className="text-xs text-muted-foreground mt-1">GSTIN: {invoice.sender_gstin}</p>
+              <p className="text-xs text-gray-400 mt-1">GSTIN: {invoice.sender_gstin}</p>
             )}
           </div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">To</p>
-            <p className="font-semibold">{invoice.client_name}</p>
-            {invoice.client_company && <p className="text-sm text-muted-foreground">{invoice.client_company}</p>}
-            {invoice.client_address && <p className="text-sm text-muted-foreground">{invoice.client_address}</p>}
-            {invoice.client_email && <p className="text-sm text-muted-foreground">{invoice.client_email}</p>}
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">To</p>
+            <p className="font-semibold text-gray-900">{invoice.client_name}</p>
+            {invoice.client_company && <p className="text-sm text-gray-500">{invoice.client_company}</p>}
+            {invoice.client_address && <p className="text-sm text-gray-500">{invoice.client_address}</p>}
+            {invoice.client_email && <p className="text-sm text-gray-500">{invoice.client_email}</p>}
             {invoice.client_gstin && (
-              <p className="text-xs text-muted-foreground mt-1">GSTIN: {invoice.client_gstin}</p>
+              <p className="text-xs text-gray-400 mt-1">GSTIN: {invoice.client_gstin}</p>
             )}
           </div>
         </div>
 
-        <Separator />
+        <div className="h-px bg-gray-200" />
 
         {/* Items */}
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border">
-              <th className="text-left py-2 font-semibold uppercase tracking-wider text-xs">Description</th>
-              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs">Qty</th>
-              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs">Price</th>
-              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs">Total</th>
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Description</th>
+              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Qty</th>
+              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Price</th>
+              <th className="text-right py-2 font-semibold uppercase tracking-wider text-xs text-gray-400">Total</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-gray-100">
             {items.map((item) => (
               <tr key={item.id}>
-                <td className="py-3">{item.description}</td>
-                <td className="py-3 text-right text-muted-foreground">{item.quantity}</td>
-                <td className="py-3 text-right text-muted-foreground">{formatCurrency(item.unit_price, invoice.currency)}</td>
-                <td className="py-3 text-right font-medium">{formatCurrency(item.quantity * item.unit_price, invoice.currency)}</td>
+                <td className="py-3 text-gray-900">{item.description}</td>
+                <td className="py-3 text-right text-gray-500">{item.quantity}</td>
+                <td className="py-3 text-right text-gray-500">{formatCurrency(item.unit_price, invoice.currency)}</td>
+                <td className="py-3 text-right font-medium text-gray-900">{formatCurrency(item.quantity * item.unit_price, invoice.currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -146,37 +143,37 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         <div className="flex justify-end">
           <div className="w-64 space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
+              <span className="text-gray-500">Subtotal</span>
+              <span className="text-gray-900">{formatCurrency(invoice.subtotal, invoice.currency)}</span>
             </div>
             {invoice.discount_amount > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Discount</span>
+                <span className="text-gray-500">Discount</span>
                 <span className="text-green-600">−{formatCurrency(invoice.discount_amount, invoice.currency)}</span>
               </div>
             )}
             {invoice.tax_type === "cgst_sgst" && (
               <>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">CGST ({Number(invoice.cgst_rate) * 100}%)</span>
-                  <span>{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
+                  <span className="text-gray-500">CGST ({Number(invoice.cgst_rate) * 100}%)</span>
+                  <span className="text-gray-900">{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">SGST ({Number(invoice.sgst_rate) * 100}%)</span>
-                  <span>{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
+                  <span className="text-gray-500">SGST ({Number(invoice.sgst_rate) * 100}%)</span>
+                  <span className="text-gray-900">{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
                 </div>
               </>
             )}
             {(invoice.tax_type === "igst" || invoice.tax_type === "custom") && invoice.tax_amount > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">
+                <span className="text-gray-500">
                   {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({Number(invoice.tax_rate) * 100}%)
                 </span>
-                <span>{formatCurrency(invoice.tax_amount, invoice.currency)}</span>
+                <span className="text-gray-900">{formatCurrency(invoice.tax_amount, invoice.currency)}</span>
               </div>
             )}
-            <Separator />
-            <div className="flex justify-between font-bold text-base">
+            <div className="h-px bg-gray-200" />
+            <div className="flex justify-between font-bold text-base text-gray-900">
               <span>Total Due</span>
               <span>{formatCurrency(invoice.total, invoice.currency)}</span>
             </div>
@@ -186,29 +183,29 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         {/* Payment Method */}
         {pm && (
           <>
-            <Separator />
+            <div className="h-px bg-gray-200" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Payment Method</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Payment Method</p>
               {pm.type === "crypto_wallet" && (
                 <div className="text-sm space-y-1">
-                  <p className="font-medium">Payment to Wallet ({pm.coin} / {pm.network})</p>
-                  <p className="font-mono text-xs break-all text-muted-foreground">{pm.wallet_address}</p>
-                  {pm.account_name && <p className="text-muted-foreground">Account: {pm.account_name}</p>}
+                  <p className="font-medium text-gray-900">Payment to Wallet ({pm.coin} / {pm.network})</p>
+                  <p className="font-mono text-xs break-all text-gray-500">{pm.wallet_address}</p>
+                  {pm.account_name && <p className="text-gray-500">Account: {pm.account_name}</p>}
                 </div>
               )}
               {pm.type === "bank_transfer" && (
                 <div className="text-sm space-y-1">
-                  <p className="font-medium">Bank Transfer — {pm.bank_name}</p>
-                  <p className="text-muted-foreground">Account: {pm.account_number}</p>
-                  {pm.ifsc_code && <p className="text-muted-foreground">IFSC: {pm.ifsc_code}</p>}
-                  {pm.swift_code && <p className="text-muted-foreground">SWIFT: {pm.swift_code}</p>}
-                  {pm.account_holder_name && <p className="text-muted-foreground">Name: {pm.account_holder_name}</p>}
+                  <p className="font-medium text-gray-900">Bank Transfer — {pm.bank_name}</p>
+                  <p className="text-gray-500">Account: {pm.account_number}</p>
+                  {pm.ifsc_code && <p className="text-gray-500">IFSC: {pm.ifsc_code}</p>}
+                  {pm.swift_code && <p className="text-gray-500">SWIFT: {pm.swift_code}</p>}
+                  {pm.account_holder_name && <p className="text-gray-500">Name: {pm.account_holder_name}</p>}
                 </div>
               )}
               {pm.type === "upi" && (
                 <div className="text-sm">
-                  <p className="font-medium">UPI</p>
-                  <p className="text-muted-foreground">{pm.upi_id}</p>
+                  <p className="font-medium text-gray-900">UPI</p>
+                  <p className="text-gray-500">{pm.upi_id}</p>
                 </div>
               )}
             </div>
@@ -218,14 +215,13 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         {/* Notes */}
         {invoice.notes && (
           <>
-            <Separator />
+            <div className="h-px bg-gray-200" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Notes</p>
-              <p className="text-sm text-muted-foreground">{invoice.notes}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Notes</p>
+              <p className="text-sm text-gray-500">{invoice.notes}</p>
             </div>
           </>
         )}
-      </div>
       </div>
     </div>
   );
