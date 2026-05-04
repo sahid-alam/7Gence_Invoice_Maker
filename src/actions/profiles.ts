@@ -37,7 +37,7 @@ export async function createProfile(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/profiles");
-  redirect(`/profiles/${profile.id}`);
+  redirect(`/profiles/${profile.id}?saved=Profile+created`);
 }
 
 export async function updateProfile(id: string, formData: FormData) {
@@ -74,6 +74,7 @@ export async function updateProfile(id: string, formData: FormData) {
 
   revalidatePath(`/profiles/${id}`);
   revalidatePath("/profiles");
+  redirect(`/profiles/${id}?saved=Changes+saved`);
 }
 
 export async function deleteProfile(id: string) {
@@ -90,5 +91,5 @@ export async function deleteProfile(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/profiles");
-  redirect("/profiles");
+  redirect("/profiles?saved=Profile+deleted");
 }

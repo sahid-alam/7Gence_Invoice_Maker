@@ -21,9 +21,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Send, CheckCircle2, XCircle, Trash2, Mail, Pencil } from "lucide-react";
-import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
+import { MoreHorizontal, Send, DollarSign, XCircle, Trash2, Mail, Pencil } from "lucide-react";
+import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce, recordPayment } from "@/actions/invoices";
 import { sendInvoiceEmail } from "@/actions/email";
+import { formatCurrency } from "@/lib/currency";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
@@ -31,15 +32,30 @@ interface Invoice {
   id: string;
   status: string;
   total: number;
+  paid_amount?: number | null;
+  currency: string;
   client_email?: string | null;
 }
 
 export function InvoiceActions({ invoice }: { invoice: Invoice }) {
-  const [loading, setLoading]               = useState(false);
-  const [showDeleteDialog, setShowDelete]   = useState(false);
-  const [password, setPassword]             = useState("");
-  const [verifying, setVerifying]           = useState(false);
+  const [loading, setLoading]                     = useState(false);
+  const [showDeleteDialog, setShowDelete]         = useState(false);
+  const [password, setPassword]                   = useState("");
+  const [verifying, setVerifying]                 = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount]         = useState("");
+  const [paymentDate, setPaymentDate]             = useState("");
+  const [paymentNotes, setPaymentNotes]           = useState("");
   const router = useRouter();
+
+  const remaining = invoice.total - (invoice.paid_amount ?? 0);
+
+  function openPaymentDialog() {
+    setPaymentAmount(String(Math.round(remaining * 100) / 100));
+    setPaymentDate(new Date().toISOString().split("T")[0]);
+    setPaymentNotes("");
+    setShowPaymentDialog(true);
+  }
 
   async function handleAction(action: () => Promise<void>, successMsg: string) {
     setLoading(true);
@@ -61,6 +77,21 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
       toast.success("Email sent to client");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await recordPayment(invoice.id, Number(paymentAmount), paymentDate, paymentNotes || undefined);
+      toast.success("Payment recorded");
+      setShowPaymentDialog(false);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment");
     } finally {
       setLoading(false);
     }
@@ -121,15 +152,10 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               </DropdownMenuItem>
             </>
           )}
-          {invoice.status === "sent" && (
+          {(invoice.status === "sent" || invoice.status === "partial") && (
             <>
-              <DropdownMenuItem
-                onClick={() => handleAction(
-                  () => updateInvoiceStatus(invoice.id, "paid", invoice.total),
-                  "Invoice marked as paid — receipt created"
-                )}
-              >
-                <CheckCircle2 size={14} className="mr-2 text-green-600" /> Mark as Paid
+              <DropdownMenuItem onClick={openPaymentDialog}>
+                <DollarSign size={14} className="mr-2 text-green-600" /> Record Payment
               </DropdownMenuItem>
               {invoice.client_email && (
                 <DropdownMenuItem onClick={handleSendEmail}>
@@ -138,7 +164,7 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               )}
             </>
           )}
-          {(invoice.status === "draft" || invoice.status === "sent") && (
+          {(invoice.status === "draft" || invoice.status === "sent" || invoice.status === "partial") && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -163,7 +189,7 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               <Trash2 size={14} className="mr-2" /> Delete Draft
             </DropdownMenuItem>
           )}
-          {invoice.status === "paid" && (
+          {(invoice.status === "paid" || invoice.status === "partial") && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -177,11 +203,73 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Password-verification dialog for paid invoice deletion */}
+      {/* Record Payment dialog */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Record Payment</DialogTitle>
+            <DialogDescription>
+              Remaining: {formatCurrency(remaining, invoice.currency)}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleRecordPayment} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-amount">Amount</Label>
+              <Input
+                id="payment-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={String(Math.round(remaining * 100) / 100)}
+                placeholder="0.00"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-date">Payment Date</Label>
+              <Input
+                id="payment-date"
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-notes">Notes (optional)</Label>
+              <Input
+                id="payment-notes"
+                type="text"
+                placeholder="e.g. Wire transfer ref #1234"
+                value={paymentNotes}
+                onChange={(e) => setPaymentNotes(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowPaymentDialog(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading || !paymentAmount || !paymentDate}>
+                {loading ? "Recording…" : "Record Payment"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password-verification dialog for deletion */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDelete}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete paid invoice?</DialogTitle>
+            <DialogTitle>Delete invoice?</DialogTitle>
             <DialogDescription>
               This action cannot be undone. Enter your password to confirm.
             </DialogDescription>

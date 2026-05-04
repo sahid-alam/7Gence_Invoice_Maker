@@ -12,7 +12,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const supabase = await createClient();
 
-  const [invoiceRes, itemsRes, driveTokenRes] = await Promise.all([
+  const [invoiceRes, itemsRes, driveTokenRes, paymentRecordsRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
@@ -28,6 +28,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .select("id")
       .eq("provider", "google_drive")
       .single(),
+    supabase
+      .from("payment_records")
+      .select("id, amount, payment_date, notes, created_at")
+      .eq("invoice_id", id)
+      .order("payment_date", { ascending: true }),
   ]);
 
   if (!invoiceRes.data) notFound();
@@ -35,12 +40,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const invoice = invoiceRes.data;
   const items = itemsRes.data ?? [];
   const driveConnected = !!driveTokenRes.data;
+  const paymentRecords = paymentRecordsRes.data ?? [];
   const today = new Date().toISOString().split("T")[0];
-  const isOverdue = invoice.status === "sent" && invoice.due_date < today;
+  const isOverdue = (invoice.status === "sent" || invoice.status === "partial") && invoice.due_date < today;
 
   const statusColors: Record<string, string> = {
     draft: "bg-muted text-muted-foreground",
     sent: "bg-blue-100 text-blue-700",
+    partial: "bg-amber-100 text-amber-700",
     paid: "bg-green-100 text-green-700",
     void: "bg-red-100 text-red-700",
   };
@@ -195,6 +202,24 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               <span>Total Due</span>
               <span>{formatCurrency(invoice.total, invoice.currency)}</span>
             </div>
+            {invoice.status === "partial" && (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Paid</span>
+                  <span className="text-green-700 font-medium">{formatCurrency(invoice.paid_amount ?? 0, invoice.currency)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold">
+                  <span className="text-gray-700">Remaining</span>
+                  <span className="text-amber-600">{formatCurrency(invoice.total - (invoice.paid_amount ?? 0), invoice.currency)}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                  <div
+                    className="h-full bg-amber-500 rounded-full"
+                    style={{ width: `${Math.min(100, ((invoice.paid_amount ?? 0) / invoice.total) * 100)}%` }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -243,6 +268,33 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       </div>
       );
     })()}
+
+      {/* Payment history */}
+      {paymentRecords.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="font-semibold">Payment History</h3>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Amount</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {paymentRecords.map((pr) => (
+                  <tr key={pr.id}>
+                    <td className="px-4 py-3 text-muted-foreground">{pr.payment_date}</td>
+                    <td className="px-4 py-3 text-right font-medium">{formatCurrency(pr.amount, invoice.currency)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{pr.notes ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

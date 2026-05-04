@@ -4,40 +4,68 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
+import { ProfileFilter } from "@/components/filters/profile-filter";
+import { FYFilter } from "@/components/filters/fy-filter";
+import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ profile?: string; fy?: string }>;
+}) {
+  const { profile, fy } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const today = new Date().toISOString().split("T")[0];
 
-  const [invoiceStats, recentInvoices, profiles] = await Promise.all([
-    supabase
-      .from("invoices")
-      .select("status, total, currency, due_date, paid_at")
-      .eq("owner_id", user!.id),
-    supabase
-      .from("invoices")
-      .select("id, invoice_number, client_name, total, currency, status, issue_date")
-      .eq("owner_id", user!.id)
-      .order("created_at", { ascending: false })
-      .limit(5),
+  let statsQuery = supabase
+    .from("invoices")
+    .select("status, total, currency, due_date, paid_at, issue_date")
+    .eq("owner_id", user!.id);
+  let recentQuery = supabase
+    .from("invoices")
+    .select("id, invoice_number, client_name, total, currency, status, issue_date")
+    .eq("owner_id", user!.id)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (profile) {
+    statsQuery = statsQuery.eq("business_profile_id", profile);
+    recentQuery = recentQuery.eq("business_profile_id", profile);
+  }
+
+  const [invoiceStats, recentInvoices, profilesRes] = await Promise.all([
+    statsQuery,
+    recentQuery,
     supabase
       .from("business_profiles")
-      .select("id")
+      .select("id, display_name, country")
       .eq("owner_id", user!.id)
-      .limit(1),
+      .order("display_name"),
   ]);
 
   const invoices = invoiceStats.data ?? [];
-  const today = new Date().toISOString().split("T")[0];
+  const profiles = profilesRes.data ?? [];
+
+  const selectedProfileCountry = profile
+    ? (profiles.find((p) => p.id === profile)?.country ?? null)
+    : null;
+  const uniqueCountries = Array.from(new Set(profiles.map((p) => p.country).filter(Boolean)));
+  const effectiveCountry = selectedProfileCountry ?? (uniqueCountries.length === 1 ? uniqueCountries[0] : null);
+  const fyConfig = getFYConfig(effectiveCountry);
+  const fyRange = fy ? getFYDateRange(Number(fy), fyConfig) : null;
+  const hasProfiles = profiles.length > 0;
+
+  const filteredInvoices = fyRange
+    ? invoices.filter((i) => i.issue_date >= fyRange.start && i.issue_date <= fyRange.end)
+    : invoices;
 
   const stats = {
-    draft: invoices.filter((i) => i.status === "draft").length,
-    sent: invoices.filter((i) => i.status === "sent" && i.due_date >= today).length,
-    overdue: invoices.filter((i) => i.status === "sent" && i.due_date < today).length,
-    paid: invoices.filter((i) => i.status === "paid").length,
+    draft: filteredInvoices.filter((i) => i.status === "draft").length,
+    sent: filteredInvoices.filter((i) => (i.status === "sent" || i.status === "partial") && i.due_date >= today).length,
+    overdue: filteredInvoices.filter((i) => (i.status === "sent" || i.status === "partial") && i.due_date < today).length,
+    paid: filteredInvoices.filter((i) => i.status === "paid").length,
   };
-
-  const hasProfiles = (profiles.data?.length ?? 0) > 0;
 
   return (
     <div className="p-8 space-y-8">
@@ -46,7 +74,13 @@ export default async function DashboardPage() {
           <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
           <p className="text-muted-foreground">Overview of your invoices and receipts</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <FYFilter
+            countryCode={effectiveCountry}
+            selectedFY={fy}
+            basePath="/dashboard"
+            extraParams={{ profile }}
+          />
           {!hasProfiles ? (
             <Button asChild>
               <Link href="/profiles/new">
@@ -64,6 +98,13 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
+
+      <ProfileFilter
+        profiles={profiles}
+        selectedProfile={profile}
+        basePath="/dashboard"
+        extraParams={{ fy }}
+      />
 
       {!hasProfiles && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -176,6 +217,7 @@ function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     draft: "bg-muted text-muted-foreground",
     sent: "bg-blue-100 text-blue-700",
+    partial: "bg-orange-100 text-orange-700",
     paid: "bg-green-100 text-green-700",
     void: "bg-red-100 text-red-700",
   };

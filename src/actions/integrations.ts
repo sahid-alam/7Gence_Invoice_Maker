@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { encryptToken, decryptToken } from "@/lib/token-crypto";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
 import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
@@ -20,7 +21,7 @@ async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClie
 
   const isExpired = token.expires_at && new Date(token.expires_at) <= new Date(Date.now() + 60_000);
 
-  if (!isExpired) return token.access_token as string;
+  if (!isExpired) return decryptToken(token.access_token as string);
 
   if (!token.refresh_token) throw new Error("Drive token expired and no refresh token — reconnect in Settings");
 
@@ -30,7 +31,7 @@ async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClie
     body: new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      refresh_token: token.refresh_token,
+      refresh_token: decryptToken(token.refresh_token as string),
       grant_type: "refresh_token",
     }),
   });
@@ -42,7 +43,7 @@ async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClie
 
   await supabase
     .from("oauth_tokens")
-    .update({ access_token: refreshed.access_token, expires_at: expiresAt })
+    .update({ access_token: encryptToken(refreshed.access_token), expires_at: expiresAt })
     .eq("owner_id", userId)
     .eq("provider", "google_drive");
 
@@ -105,6 +106,7 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
       .from("invoice_items")
       .select("description, quantity, unit_price")
       .eq("invoice_id", invoiceId)
+      .eq("owner_id", user.id)
       .order("sort_order"),
   ]);
 

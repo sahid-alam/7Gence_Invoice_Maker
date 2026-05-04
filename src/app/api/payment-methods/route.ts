@@ -6,6 +6,8 @@ export async function GET(req: NextRequest) {
   if (!profileId) return NextResponse.json([]);
 
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json([], { status: 401 });
   const { data } = await supabase
     .from("payment_methods")
     .select("id, label, type, is_default")

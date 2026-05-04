@@ -15,12 +15,10 @@ export function SplashOverlay() {
       return;
     }
 
-    // Keep page content invisible while splash is showing
     if (content) content.style.opacity = "0";
 
     const holdTimer = setTimeout(() => {
       setPhase("fading");
-      // Fade content in at the same time as splash fades out
       if (content) {
         content.style.transition = "opacity 600ms ease-in-out";
         content.style.opacity = "1";
@@ -49,7 +47,7 @@ export function SplashOverlay() {
         pointerEvents: phase === "fading" ? "none" : undefined,
       }}
     >
-      {/* Same teal gradient as auth page */}
+      {/* Teal gradient background */}
       <div
         className="absolute bottom-0 right-0 w-[70%] pointer-events-none"
         style={{ top: "-30%" }}
@@ -85,7 +83,6 @@ export function SplashOverlay() {
 
       {/* Centered content */}
       <div className="relative z-10 flex flex-col items-center" style={{ gap: "28px" }}>
-
         <div className="splash-logo flex items-center gap-3">
           <Image
             src="/logo/7gence-logo.svg"

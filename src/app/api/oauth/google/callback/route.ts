@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { encryptToken } from "@/lib/token-crypto";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -68,8 +69,8 @@ export async function GET(req: NextRequest) {
       {
         owner_id: user.id,
         provider: "google_drive",
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token ?? null,
+        access_token: encryptToken(tokens.access_token),
+        refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
         expires_at: expiresAt,
         scope: tokens.scope,
       },

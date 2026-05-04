@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import nodemailer from "nodemailer";
 import { formatCurrency } from "@/lib/currency";
+import { encryptToken, decryptToken } from "@/lib/token-crypto";
 
 function escapeHtml(str: string): string {
   return str
@@ -66,14 +67,16 @@ export async function sendInvoiceEmail(invoiceId: string) {
 
   const subjectTemplate = settingsRes.data?.email_subject?.trim() || "Invoice {{invoice_number}} — {{amount}} due";
   const introTemplate = settingsRes.data?.email_intro?.trim() || "Please find your invoice details below.";
-  const emailSubject = applyVars(subjectTemplate);
-  const emailIntro = applyVars(introTemplate);
+  // Escape template skeletons so user-authored HTML is inert; variable values are also escaped inside applyVars
+  const emailSubject = applyVars(escapeHtml(subjectTemplate));
+  const emailIntro = applyVars(escapeHtml(introTemplate));
 
-  let { access_token } = tokenRes.data;
+  let accessToken = decryptToken(tokenRes.data.access_token);
+  const refreshTokenRaw = tokenRes.data.refresh_token ? decryptToken(tokenRes.data.refresh_token) : null;
 
   // Refresh token if expired
   if (tokenRes.data.expires_at && new Date(tokenRes.data.expires_at) <= new Date(Date.now() + 60_000)) {
-    if (!tokenRes.data.refresh_token) {
+    if (!refreshTokenRaw) {
       throw new Error("Google token expired — reconnect in Settings");
     }
     const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -82,16 +85,16 @@ export async function sendInvoiceEmail(invoiceId: string) {
       body: new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        refresh_token: tokenRes.data.refresh_token,
+        refresh_token: refreshTokenRaw,
         grant_type: "refresh_token",
       }),
     });
     if (!refreshRes.ok) throw new Error("Failed to refresh Google token — reconnect in Settings");
     const refreshed = await refreshRes.json() as { access_token: string; expires_in: number };
-    access_token = refreshed.access_token;
+    accessToken = refreshed.access_token;
     await supabase
       .from("oauth_tokens")
-      .update({ access_token, expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString() })
+      .update({ access_token: encryptToken(accessToken), expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString() })
       .eq("owner_id", user.id)
       .eq("provider", "google_drive");
   }
@@ -103,8 +106,8 @@ export async function sendInvoiceEmail(invoiceId: string) {
       user: gmailUser,
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      refreshToken: tokenRes.data.refresh_token ?? undefined,
-      accessToken: access_token,
+      refreshToken: refreshTokenRaw ?? undefined,
+      accessToken: accessToken,
     },
   });
 

@@ -34,7 +34,7 @@ export async function createClient_action(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/clients");
-  redirect(`/clients/${client.id}`);
+  redirect(`/clients/${client.id}?saved=Client+created`);
 }
 
 export async function updateClient(id: string, formData: FormData) {
@@ -67,6 +67,7 @@ export async function updateClient(id: string, formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(`/clients/${id}`);
   revalidatePath("/clients");
+  redirect(`/clients/${id}?saved=Changes+saved`);
 }
 
 export async function deleteClientAction(id: string) {
@@ -82,5 +83,5 @@ export async function deleteClientAction(id: string) {
 
   if (error) throw new Error(error.message);
   revalidatePath("/clients");
-  redirect("/clients");
+  redirect("/clients?saved=Client+deleted");
 }

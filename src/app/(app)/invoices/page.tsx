@@ -4,13 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { ProfileFilter } from "@/components/filters/profile-filter";
+import { FYFilter } from "@/components/filters/fy-filter";
+import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
 
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; profile?: string }>;
+  searchParams: Promise<{ status?: string; profile?: string; fy?: string }>;
 }) {
-  const { status, profile } = await searchParams;
+  const { status, profile, fy } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -32,21 +34,54 @@ export default async function InvoicesPage({
     query = query.eq("business_profile_id", profile);
   }
 
-  const [profilesRes, { data: invoices }] = await Promise.all([
+  const [profilesRes, { data: invoices }, { data: allForCounts }] = await Promise.all([
     supabase
       .from("business_profiles")
-      .select("id, display_name")
+      .select("id, display_name, country")
       .eq("owner_id", user!.id)
       .order("display_name"),
     query,
+    (() => {
+      let q = supabase
+        .from("invoices")
+        .select("status, due_date, issue_date")
+        .eq("owner_id", user!.id);
+      if (profile) q = q.eq("business_profile_id", profile);
+      return q;
+    })(),
   ]);
 
   const profiles = profilesRes.data ?? [];
+
+  const selectedProfileCountry = profile
+    ? (profiles.find((p) => p.id === profile)?.country ?? null)
+    : null;
+  const uniqueCountries = Array.from(new Set(profiles.map((p) => p.country).filter(Boolean)));
+  const effectiveCountry = selectedProfileCountry ?? (uniqueCountries.length === 1 ? uniqueCountries[0] : null);
+  const fyConfig = getFYConfig(effectiveCountry);
+  const fyRange = fy ? getFYDateRange(Number(fy), fyConfig) : null;
+
+  const countsSource = fyRange
+    ? (allForCounts ?? []).filter((i) => i.issue_date >= fyRange.start && i.issue_date <= fyRange.end)
+    : (allForCounts ?? []);
+
+  const counts = countsSource.reduce<Record<string, number>>((acc, inv) => {
+    const isOverdue = (inv.status === "sent" || inv.status === "partial") && inv.due_date < today;
+    const key = isOverdue ? "overdue" : inv.status;
+    acc[key] = (acc[key] ?? 0) + 1;
+    acc["all"] = (acc["all"] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const filteredInvoices = fyRange
+    ? (invoices ?? []).filter((i) => i.issue_date >= fyRange.start && i.issue_date <= fyRange.end)
+    : (invoices ?? []);
 
   const tabs = [
     { key: "all", label: "All" },
     { key: "draft", label: "Draft" },
     { key: "sent", label: "Sent" },
+    { key: "partial", label: "Partial" },
     { key: "paid", label: "Paid" },
     { key: "overdue", label: "Overdue" },
     { key: "void", label: "Void" },
@@ -58,38 +93,60 @@ export default async function InvoicesPage({
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Invoices</h2>
-        <Button asChild>
-          <Link href="/invoices/new">
-            <Plus size={16} className="mr-2" />
-            New Invoice
-          </Link>
-        </Button>
+        <div className="flex items-center gap-3">
+          <FYFilter
+            countryCode={effectiveCountry}
+            selectedFY={fy}
+            basePath="/invoices"
+            extraParams={{ profile, status }}
+          />
+          <Button asChild>
+            <Link href="/invoices/new">
+              <Plus size={16} className="mr-2" />
+              New Invoice
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <ProfileFilter
         profiles={profiles}
         selectedProfile={profile}
         basePath="/invoices"
-        extraParams={{ status }}
+        extraParams={{ status, fy }}
       />
 
       <div className="flex gap-1 border-b border-border">
-        {tabs.map((tab) => (
+        {tabs.map((tab) => {
+          const params = new URLSearchParams({ status: tab.key });
+          if (profile) params.set("profile", profile);
+          if (fy) params.set("fy", fy);
+          return (
           <Link
             key={tab.key}
-            href={`/invoices?status=${tab.key}${profile ? `&profile=${profile}` : ""}`}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            href={`/invoices?${params.toString()}`}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === tab.key
                 ? "border-foreground text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {tab.label}
+            {counts[tab.key] > 0 && (
+              <span className={`text-[11px] font-medium rounded-full px-1.5 py-0.5 leading-none ${
+                activeTab === tab.key
+                  ? "bg-foreground text-background"
+                  : "bg-muted text-muted-foreground"
+              }`}>
+                {counts[tab.key]}
+              </span>
+            )}
           </Link>
-        ))}
+          );
+        })}
       </div>
 
-      {(invoices?.length ?? 0) === 0 ? (
+      {filteredInvoices.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
           <p className="text-muted-foreground">No invoices found.</p>
           <Button asChild variant="outline" size="sm" className="mt-4">
@@ -110,8 +167,8 @@ export default async function InvoicesPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {invoices?.map((inv) => {
-                const isOverdue = inv.status === "sent" && inv.due_date < today;
+              {filteredInvoices.map((inv) => {
+                const isOverdue = (inv.status === "sent" || inv.status === "partial") && inv.due_date < today;
                 return (
                   <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
@@ -145,6 +202,7 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     draft: "bg-muted text-muted-foreground",
     sent: "bg-blue-100 text-blue-700",
+    partial: "bg-orange-100 text-orange-700",
     paid: "bg-green-100 text-green-700",
     void: "bg-red-100 text-red-700",
     overdue: "bg-amber-100 text-amber-700",

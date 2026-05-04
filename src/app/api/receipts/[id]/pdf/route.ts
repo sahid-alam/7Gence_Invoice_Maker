@@ -48,12 +48,12 @@ export async function GET(
     notes: receipt.notes,
     payment_method_snapshot: receipt.payment_method_snapshot as Record<string, string> | null,
     business_profiles: receipt.business_profiles,
-    items: [{ description: `Payment Receipt — ${receipt.receipt_number}`, quantity: 1, unit_price: receipt.amount }],
+    items: [],
   };
 
   const Template = receipt.template_id === "cream-serif" ? TemplateCreamSerif : TemplateWhiteCaps;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stream = await renderToStream(React.createElement(Template, { invoice: receiptData }) as any);
+  const stream = await renderToStream(React.createElement(Template, { invoice: receiptData, documentType: "receipt" }) as any);
 
   return new Response(stream as unknown as ReadableStream, {
     headers: {

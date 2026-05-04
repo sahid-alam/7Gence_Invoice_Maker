@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowLeft } from "lucide-react";
 import { updateClient } from "@/actions/clients";
 import { DeleteClientButton } from "@/components/clients/delete-client-button";
+import { CountryStateSelect } from "@/components/ui/country-state-select";
 import { formatCurrency } from "@/lib/currency";
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
@@ -95,20 +96,16 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             <Input id="city" name="city" defaultValue={client.city ?? ""} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="state">State</Label>
-            <Input id="state" name="state" defaultValue={client.state ?? ""} />
+            <Label htmlFor="postal_code">Postal Code</Label>
+            <Input id="postal_code" name="postal_code" defaultValue={client.postal_code ?? ""} />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="country">Country</Label>
-            <Input id="country" name="country" defaultValue={client.country ?? ""} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="postal_code">Postal Code</Label>
-            <Input id="postal_code" name="postal_code" defaultValue={client.postal_code ?? ""} />
-          </div>
+          <CountryStateSelect
+            defaultCountry={client.country ?? ""}
+            defaultState={client.state ?? ""}
+          />
         </div>
 
         <div className="space-y-2">

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { CountryStateSelect } from "@/components/ui/country-state-select";
 import Link from "next/link";
 
 export default function NewClientPage() {
@@ -45,17 +46,13 @@ export default function NewClientPage() {
             <Input name="city" placeholder="Dubai" />
           </div>
           <div className="space-y-2">
-            <Label>State / Region</Label>
-            <Input name="state" placeholder="Dubai" />
-          </div>
-          <div className="space-y-2">
-            <Label>Country</Label>
-            <Input name="country" placeholder="UAE" />
-          </div>
-          <div className="space-y-2">
             <Label>Postal Code</Label>
             <Input name="postal_code" placeholder="00000" />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <CountryStateSelect />
         </div>
 
         <Separator />

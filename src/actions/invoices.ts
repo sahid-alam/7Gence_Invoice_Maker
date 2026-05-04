@@ -58,6 +58,14 @@ export async function createInvoice(input: CreateInvoiceInput) {
     if (pm) paymentSnapshot = pm;
   }
 
+  // Validate numeric inputs
+  if (!Number.isFinite(input.tax_rate) || input.tax_rate < 0 || input.tax_rate > 100) throw new Error("Invalid tax rate");
+  if (!Number.isFinite(input.discount_percent) || input.discount_percent < 0 || input.discount_percent > 100) throw new Error("Invalid discount");
+  for (const item of input.items) {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new Error("Invalid quantity");
+    if (!Number.isFinite(item.unit_price) || item.unit_price < 0) throw new Error("Invalid unit price");
+  }
+
   // Calculate totals
   const subtotal = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
   const tax = calculateTax({
@@ -129,62 +137,109 @@ export async function createInvoice(input: CreateInvoiceInput) {
 
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
-  redirect(`/invoices/${invoice.id}`);
+  redirect(`/invoices/${invoice.id}?saved=Invoice+created`);
 }
 
 export async function updateInvoiceStatus(
   id: string,
-  status: "sent" | "paid" | "void",
-  paidAmount?: number
+  status: "sent" | "void",
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const updateData: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
-  if (status === "paid") {
-    updateData.paid_at = new Date().toISOString();
-    updateData.paid_amount = paidAmount;
-  }
-
   const { error } = await supabase
     .from("invoices")
-    .update(updateData)
+    .update({ status, updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("owner_id", user.id);
 
   if (error) throw new Error(error.message);
 
-  // Auto-create receipt when paid
-  if (status === "paid") {
-    const { data: invoice } = await supabase
-      .from("invoices")
-      .select("*")
-      .eq("id", id)
-      .single();
+  revalidatePath(`/invoices/${id}`);
+  revalidatePath("/invoices");
+  revalidatePath("/dashboard");
+}
 
-    if (invoice) {
-      const { data: receiptNum } = await supabase
-        .rpc("next_receipt_number", { profile_id: invoice.business_profile_id });
+export async function recordPayment(
+  invoiceId: string,
+  amount: number,
+  paymentDate: string,
+  notes?: string
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-      await supabase.from("receipts").insert({
-        owner_id: user.id,
-        invoice_id: invoice.id,
-        business_profile_id: invoice.business_profile_id,
-        receipt_number: receiptNum,
-        client_name: invoice.client_name,
-        client_company: invoice.client_company,
-        client_address: invoice.client_address,
-        amount: paidAmount ?? invoice.total,
-        currency: invoice.currency,
-        payment_method_snapshot: invoice.payment_method_snapshot,
-        payment_date: new Date().toISOString().split("T")[0],
-        template_id: invoice.template_id,
-      });
-    }
+  const { data: invoice, error: fetchError } = await supabase
+    .from("invoices")
+    .select("id, status, total, paid_amount, business_profile_id, currency, client_name, client_company, client_address, payment_method_snapshot, template_id")
+    .eq("id", invoiceId)
+    .eq("owner_id", user.id)
+    .single();
+
+  if (fetchError || !invoice) throw new Error("Invoice not found");
+  if (invoice.status !== "sent" && invoice.status !== "partial") {
+    throw new Error("Can only record payments for sent or partial invoices");
   }
 
-  revalidatePath(`/invoices/${id}`);
+  // Integer arithmetic to avoid float drift
+  const totalCents = Math.round(invoice.total * 10000);
+  const paidSoFarCents = Math.round((invoice.paid_amount ?? 0) * 10000);
+  const newPaymentCents = Math.round(amount * 10000);
+  const newPaidCents = paidSoFarCents + newPaymentCents;
+
+  if (newPaymentCents <= 0) throw new Error("Payment amount must be positive");
+  if (newPaidCents > totalCents) throw new Error("Payment exceeds invoice total");
+
+  const newPaidAmount = newPaidCents / 10000;
+  const isFullyPaid = newPaidCents >= totalCents;
+  const newStatus = isFullyPaid ? "paid" : "partial";
+
+  const { error: prError } = await supabase.from("payment_records").insert({
+    invoice_id: invoiceId,
+    owner_id: user.id,
+    amount,
+    payment_date: paymentDate,
+    notes: notes || null,
+  });
+  if (prError) throw new Error(prError.message);
+
+  const updateData: Record<string, unknown> = {
+    status: newStatus,
+    paid_amount: newPaidAmount,
+    updated_at: new Date().toISOString(),
+  };
+  if (isFullyPaid) updateData.paid_at = new Date().toISOString();
+
+  const { error: updateError } = await supabase
+    .from("invoices")
+    .update(updateData)
+    .eq("id", invoiceId)
+    .eq("owner_id", user.id);
+  if (updateError) throw new Error(updateError.message);
+
+  if (isFullyPaid) {
+    const { data: receiptNum } = await supabase
+      .rpc("next_receipt_number", { profile_id: invoice.business_profile_id });
+
+    await supabase.from("receipts").insert({
+      owner_id: user.id,
+      invoice_id: invoice.id,
+      business_profile_id: invoice.business_profile_id,
+      receipt_number: receiptNum,
+      client_name: invoice.client_name,
+      client_company: invoice.client_company,
+      client_address: invoice.client_address,
+      amount: invoice.total,
+      currency: invoice.currency,
+      payment_method_snapshot: invoice.payment_method_snapshot,
+      payment_date: paymentDate,
+      template_id: invoice.template_id,
+    });
+  }
+
+  revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
   revalidatePath("/receipts");
@@ -211,6 +266,13 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
       .eq("owner_id", user.id)
       .single();
     if (pm) paymentSnapshot = pm;
+  }
+
+  if (!Number.isFinite(input.tax_rate) || input.tax_rate < 0 || input.tax_rate > 100) throw new Error("Invalid tax rate");
+  if (!Number.isFinite(input.discount_percent) || input.discount_percent < 0 || input.discount_percent > 100) throw new Error("Invalid discount");
+  for (const item of input.items) {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new Error("Invalid quantity");
+    if (!Number.isFinite(item.unit_price) || item.unit_price < 0) throw new Error("Invalid unit price");
   }
 
   const subtotal = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
@@ -278,7 +340,7 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
   revalidatePath(`/invoices/${id}`);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
-  redirect(`/invoices/${id}`);
+  redirect(`/invoices/${id}?saved=Changes+saved`);
 }
 
 export async function deleteInvoice(id: string) {
@@ -296,7 +358,7 @@ export async function deleteInvoice(id: string) {
   if (error) throw new Error(error.message);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
-  redirect("/invoices");
+  redirect("/invoices?saved=Invoice+deleted");
 }
 
 export async function deleteInvoiceForce(id: string) {

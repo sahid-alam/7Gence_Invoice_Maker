@@ -7,8 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { updateProfile, deleteProfile } from "@/actions/profiles";
-import { INDIAN_STATES } from "@/types/app.types";
 import { PaymentMethodsSection } from "@/components/profiles/payment-methods-section";
+import { CountryStateSelect } from "@/components/ui/country-state-select";
 import { ArrowLeft } from "lucide-react";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "AED", "INR", "USDT"];
@@ -20,13 +20,15 @@ const TEMPLATES = [
 export default async function ProfileDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const [profileRes, paymentMethodsRes] = await Promise.all([
-    supabase.from("business_profiles").select("*").eq("id", id).single(),
+    supabase.from("business_profiles").select("*").eq("id", id).eq("owner_id", user!.id).single(),
     supabase
       .from("payment_methods")
       .select("*")
       .eq("business_profile_id", id)
+      .eq("owner_id", user!.id)
       .order("is_default", { ascending: false }),
   ]);
 
@@ -82,19 +84,10 @@ export default async function ProfileDetailPage({ params }: { params: Promise<{ 
                 <Label>City</Label>
                 <Input name="city" defaultValue={profile.city ?? ""} />
               </div>
-              <div className="space-y-2">
-                <Label>State</Label>
-                <select name="state" defaultValue={profile.state ?? ""} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
-                  <option value="">Select state</option>
-                  {INDIAN_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Country</Label>
-                <Input name="country" defaultValue={profile.country ?? "IN"} />
-              </div>
+              <CountryStateSelect
+                defaultCountry={profile.country ?? "IN"}
+                defaultState={profile.state ?? ""}
+              />
               <div className="space-y-2">
                 <Label>Postal Code</Label>
                 <Input name="postal_code" defaultValue={profile.postal_code ?? ""} />
@@ -135,10 +128,12 @@ export default async function ProfileDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex items-center justify-between pt-2">
               <Button type="submit">Save Changes</Button>
               <form action={deleteProfile.bind(null, id)}>
-                <Button type="submit" variant="destructive" size="sm">Delete Profile</Button>
+                <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                  Delete Profile
+                </Button>
               </form>
             </div>
           </form>

@@ -3,20 +3,22 @@ import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { ProfileFilter } from "@/components/filters/profile-filter";
+import { FYFilter } from "@/components/filters/fy-filter";
+import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
 
 export default async function ReceiptsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ profile?: string }>;
+  searchParams: Promise<{ profile?: string; fy?: string }>;
 }) {
-  const { profile } = await searchParams;
+  const { profile, fy } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   const [profilesRes, receiptsRes] = await Promise.all([
     supabase
       .from("business_profiles")
-      .select("id, display_name")
+      .select("id, display_name, country")
       .eq("owner_id", user!.id)
       .order("display_name"),
     (() => {
@@ -33,6 +35,18 @@ export default async function ReceiptsPage({
   const receipts = receiptsRes.data ?? [];
   const profiles = profilesRes.data ?? [];
 
+  const selectedProfileCountry = profile
+    ? (profiles.find((p) => p.id === profile)?.country ?? null)
+    : null;
+  const uniqueCountries = Array.from(new Set(profiles.map((p) => p.country).filter(Boolean)));
+  const effectiveCountry = selectedProfileCountry ?? (uniqueCountries.length === 1 ? uniqueCountries[0] : null);
+  const fyConfig = getFYConfig(effectiveCountry);
+  const fyRange = fy ? getFYDateRange(Number(fy), fyConfig) : null;
+
+  const filteredReceipts = fyRange
+    ? receipts.filter((r) => r.payment_date >= fyRange.start && r.payment_date <= fyRange.end)
+    : receipts;
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -40,15 +54,22 @@ export default async function ReceiptsPage({
           <h2 className="text-2xl font-bold tracking-tight">Receipts</h2>
           <p className="text-muted-foreground">Payment receipts for your records</p>
         </div>
+        <FYFilter
+          countryCode={effectiveCountry}
+          selectedFY={fy}
+          basePath="/receipts"
+          extraParams={{ profile }}
+        />
       </div>
 
       <ProfileFilter
         profiles={profiles}
         selectedProfile={profile}
         basePath="/receipts"
+        extraParams={{ fy }}
       />
 
-      {receipts.length === 0 ? (
+      {filteredReceipts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center">
           <Receipt size={32} className="mx-auto text-muted-foreground mb-4" />
           <p className="font-medium">No receipts yet</p>
@@ -69,7 +90,7 @@ export default async function ReceiptsPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {receipts.map((r) => (
+              {filteredReceipts.map((r) => (
                 <tr key={r.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3">
                     <Link href={`/receipts/${r.id}`} className="font-mono font-medium hover:underline">

@@ -71,20 +71,27 @@ interface InvoiceData {
   items: { description: string; quantity: number; unit_price: number }[];
 }
 
-export function TemplateCreamSerif({ invoice }: { invoice: InvoiceData }) {
+export function TemplateCreamSerif({
+  invoice,
+  documentType = "invoice",
+}: {
+  invoice: InvoiceData;
+  documentType?: "invoice" | "receipt";
+}) {
   const cur = invoice.currency as CurrencyCode;
   const pm = invoice.payment_method_snapshot;
   const profile = invoice.business_profiles;
+  const isReceipt = documentType === "receipt";
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.invoiceTitle}>Invoice</Text>
+          <Text style={s.invoiceTitle}>{isReceipt ? "Receipt" : "Invoice"}</Text>
           <View style={s.metaBlock}>
             <Text style={s.metaDate}>{invoice.issue_date}</Text>
-            <Text style={s.metaNumber}>Invoice No. {invoice.invoice_number}</Text>
+            <Text style={s.metaNumber}>{isReceipt ? "Receipt No." : "Invoice No."} {invoice.invoice_number}</Text>
           </View>
         </View>
 
@@ -101,7 +108,7 @@ export function TemplateCreamSerif({ invoice }: { invoice: InvoiceData }) {
             {invoice.sender_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.sender_gstin}</Text>}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={s.label}>Billed To</Text>
+            <Text style={s.label}>{isReceipt ? "Received From" : "Billed To"}</Text>
             <Text style={s.name}>{invoice.client_company || invoice.client_name}</Text>
             {invoice.client_address && <Text style={s.line}>{invoice.client_address}</Text>}
             {invoice.client_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.client_gstin}</Text>}
@@ -110,50 +117,71 @@ export function TemplateCreamSerif({ invoice }: { invoice: InvoiceData }) {
 
         <View style={s.divider} />
 
-        {/* Items */}
-        <View style={s.tableHeader}>
-          <Text style={[s.tableHeaderText, { flex: 1 }]}>Description</Text>
-          <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Amount</Text>
-        </View>
-        {invoice.items.map((item, i) => (
-          <View key={i} style={s.tableRow}>
-            <Text style={s.descCol}>{item.description}</Text>
-            <Text style={s.amtCol}>{formatCurrency(item.quantity * item.unit_price, cur)}</Text>
-          </View>
-        ))}
+        {/* Invoice: items table + totals */}
+        {!isReceipt && (
+          <>
+            <View style={s.tableHeader}>
+              <Text style={[s.tableHeaderText, { flex: 1 }]}>Description</Text>
+              <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Amount</Text>
+            </View>
+            {invoice.items.map((item, i) => (
+              <View key={i} style={s.tableRow}>
+                <Text style={s.descCol}>{item.description}</Text>
+                <Text style={s.amtCol}>{formatCurrency(item.quantity * item.unit_price, cur)}</Text>
+              </View>
+            ))}
 
-        {/* Totals */}
-        <View style={s.totalsRow}>
-          <View style={s.totalsBlock}>
-            {invoice.discount_amount > 0 && (
-              <View style={s.totalsLine}>
-                <Text style={s.totalsLabel}>Discount</Text>
-                <Text style={[s.totalsValue, { color: "#16a34a" }]}>−{formatCurrency(invoice.discount_amount, cur)}</Text>
+            <View style={s.totalsRow}>
+              <View style={s.totalsBlock}>
+                {invoice.discount_amount > 0 && (
+                  <View style={s.totalsLine}>
+                    <Text style={s.totalsLabel}>Discount</Text>
+                    <Text style={[s.totalsValue, { color: "#16a34a" }]}>−{formatCurrency(invoice.discount_amount, cur)}</Text>
+                  </View>
+                )}
+                {invoice.tax_amount > 0 && (
+                  <View style={s.totalsLine}>
+                    <Text style={s.totalsLabel}>Tax</Text>
+                    <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount, cur)}</Text>
+                  </View>
+                )}
+                <View style={s.totalsLine}>
+                  <Text style={s.totalFinalLabel}>Total Due</Text>
+                  <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
+                </View>
               </View>
-            )}
-            {invoice.tax_amount > 0 && (
+            </View>
+          </>
+        )}
+
+        {/* Receipt: amount received */}
+        {isReceipt && (
+          <View style={s.totalsRow}>
+            <View style={s.totalsBlock}>
               <View style={s.totalsLine}>
-                <Text style={s.totalsLabel}>Tax</Text>
-                <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount, cur)}</Text>
+                <Text style={s.totalFinalLabel}>Amount Received</Text>
+                <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
               </View>
-            )}
-            <View style={s.totalsLine}>
-              <Text style={s.totalFinalLabel}>Total</Text>
-              <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
             </View>
           </View>
-        </View>
+        )}
 
         <View style={{ flex: 1 }} />
 
-        {/* Footer: Payment Left / Sender Right */}
+        {/* Footer: Payment Left / Notes Right */}
         <View style={s.divider} />
         <View style={s.footer}>
           <View style={s.footerLeft}>
             {pm ? (
               <>
                 <Text style={s.paymentLabel}>
-                  {pm.type === "bank_transfer" ? "Bank Details" : pm.type === "crypto_wallet" ? "Crypto Wallet" : "UPI"}
+                  {isReceipt
+                    ? "Paid Via"
+                    : pm.type === "bank_transfer"
+                    ? "Bank Details"
+                    : pm.type === "crypto_wallet"
+                    ? "Crypto Wallet"
+                    : "UPI"}
                 </Text>
                 {pm.type === "bank_transfer" && (
                   <>

@@ -131,7 +131,7 @@
   .blob-2 { animation: floatBlob2 19s ease-in-out infinite; }
   .blob-3 { animation: floatBlob3 11s ease-in-out infinite; }
 
-  /* ── Splash / loading animations ──────────────────────────── */
+  /* ── Splash / login animations ──────────────────────────── */
   @keyframes splashAppear {
     from { opacity: 0; transform: scale(0.88); }
     to   { opacity: 1; transform: scale(1); }
@@ -144,9 +144,6 @@
     0%   { transform: translateX(-100%); }
     100% { transform: translateX(350%); }
   }
-  @keyframes splashRingSpin {
-    to { transform: rotate(360deg); }
-  }
   @keyframes splashFadeOut {
     from { opacity: 1; }
     to   { opacity: 0; }
@@ -156,7 +153,6 @@
   .splash-text      { animation: splashTextUp  0.5s  cubic-bezier(0.22,1,0.36,1) 0.3s  both; }
   .splash-sub       { animation: splashTextUp  0.45s ease 0.55s both; }
   .splash-bar       { animation: splashTextUp  0.45s ease 0.55s both; }
-  .splash-ring      { animation: splashRingSpin 1.1s linear infinite; }
   .splash-bar-inner { animation: splashBarSlide 1.6s ease-in-out 0.7s infinite; }
 
   .noise-overlay {

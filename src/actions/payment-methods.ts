@@ -9,6 +9,14 @@ export async function createPaymentMethod(profileId: string, formData: FormData)
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: profile } = await supabase
+    .from("business_profiles")
+    .select("id")
+    .eq("id", profileId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!profile) throw new Error("Profile not found");
+
   const type = formData.get("type") as string;
 
   const data = {
