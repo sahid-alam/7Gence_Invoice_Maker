@@ -155,19 +155,23 @@ export async function sendInvoiceEmail(invoiceId: string) {
     </div>
   `;
 
-  await transporter.sendMail({
-    from: `7Gence <${gmailUser}>`,
-    to: invoice.client_email,
-    subject: emailSubject,
-    html,
-    attachments: [
-      {
-        filename: `Invoice-${invoice.invoice_number}.pdf`,
-        content: pdfBuffer,
-        contentType: "application/pdf",
-      },
-    ],
-  });
+  try {
+    await transporter.sendMail({
+      from: `7Gence <${gmailUser}>`,
+      to: invoice.client_email,
+      subject: emailSubject,
+      html,
+      attachments: [
+        {
+          filename: `Invoice-${invoice.invoice_number}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : "Failed to send email — check your Google connection in Settings");
+  }
 
   return { success: true };
 }

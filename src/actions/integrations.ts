@@ -115,10 +115,15 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
   registerFonts();
   const invoice = { ...invoiceRes.data, items: itemsRes.data ?? [] };
   const Template = invoice.template_id === "cream-serif" ? TemplateCreamSerif : TemplateWhiteCaps;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice }) as any);
 
-  const url = await uploadPdfToDrive(accessToken, pdfBuffer, `Invoice-${invoice.invoice_number}.pdf`);
+  let url: string;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice }) as any);
+    url = await uploadPdfToDrive(accessToken, pdfBuffer, `Invoice-${invoice.invoice_number}.pdf`);
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : "Drive export failed — check your Google connection");
+  }
 
   await supabase.from("invoices").update({ drive_url: url }).eq("id", invoiceId).eq("owner_id", user.id);
 
