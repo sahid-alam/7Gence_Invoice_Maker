@@ -31,11 +31,11 @@ export default async function DashboardPage({
     .limit(5);
   let paymentsQuery = supabase
     .from("payments")
-    .select("total_amount, currency, payment_date")
+    .select("total_amount, currency, received_amount, received_currency, payment_date")
     .eq("owner_id", user!.id);
   let recentPaymentsQuery = supabase
     .from("payments")
-    .select("id, payer_name, total_amount, currency, payment_date, payment_mode")
+    .select("id, payer_name, total_amount, currency, received_amount, received_currency, payment_date, payment_mode")
     .eq("owner_id", user!.id)
     .order("created_at", { ascending: false })
     .limit(5);
@@ -85,11 +85,10 @@ export default async function DashboardPage({
       )
     : allPaymentStats;
 
-  // Status counts — fixed: sent includes all sent/partial regardless of due date
+  // Status counts
   const draft = filteredInvoices.filter((i) => i.status === "draft").length;
-  const sent = filteredInvoices.filter(
-    (i) => i.status === "sent" || i.status === "partial"
-  ).length;
+  const sentCount = filteredInvoices.filter((i) => i.status === "sent").length;
+  const partial = filteredInvoices.filter((i) => i.status === "partial").length;
   const overdue = filteredInvoices.filter(
     (i) =>
       (i.status === "sent" || i.status === "partial") &&
@@ -98,13 +97,9 @@ export default async function DashboardPage({
   ).length;
   const paid = filteredInvoices.filter((i) => i.status === "paid").length;
 
-  // Financial stats — shown when all filtered invoices share one currency
+  // Financial stats — invoice currency (for Total Billed + Outstanding)
   const activeCurrencies = Array.from(
-    new Set(
-      filteredInvoices
-        .filter((i) => i.status !== "void")
-        .map((i) => i.currency)
-    )
+    new Set(filteredInvoices.filter((i) => i.status !== "void").map((i) => i.currency))
   );
   const primaryCurrency: CurrencyCode | null =
     activeCurrencies.length === 1 ? (activeCurrencies[0] as CurrencyCode) : null;
@@ -123,12 +118,43 @@ export default async function DashboardPage({
           .reduce((s, i) => s + (i.total - (i.paid_amount ?? 0)), 0)
       : null;
 
-  const totalReceived =
-    primaryCurrency != null
-      ? filteredPayments
-          .filter((p) => p.currency === primaryCurrency)
-          .reduce((s, p) => s + Number(p.total_amount), 0)
-      : null;
+  // Total Received — prefer received_amount (actual local currency) over invoice currency.
+  // If all payments with a conversion share one received_currency, show that.
+  // Falls back to invoice currency total when no conversions are recorded.
+  const paymentsWithConversion = filteredPayments.filter(
+    (p) => p.received_amount != null && p.received_currency != null
+  );
+  const receivedCurrencies = Array.from(
+    new Set(paymentsWithConversion.map((p) => p.received_currency))
+  );
+  const allHaveSameReceivedCurrency =
+    receivedCurrencies.length === 1 &&
+    paymentsWithConversion.length === filteredPayments.length;
+
+  let totalReceived: number | null = null;
+  let totalReceivedCurrency: CurrencyCode | null = null;
+  let totalReceivedInvoiceCurrency: number | null = null;
+
+  if (allHaveSameReceivedCurrency) {
+    // All payments converted to the same local currency — show that as primary
+    totalReceived = paymentsWithConversion.reduce(
+      (s, p) => s + Number(p.received_amount),
+      0
+    );
+    totalReceivedCurrency = receivedCurrencies[0] as CurrencyCode;
+    // Also compute invoice-currency total as secondary label
+    if (primaryCurrency != null) {
+      totalReceivedInvoiceCurrency = filteredPayments
+        .filter((p) => p.currency === primaryCurrency)
+        .reduce((s, p) => s + Number(p.total_amount), 0);
+    }
+  } else if (primaryCurrency != null) {
+    // Mixed or no conversions — fall back to invoice currency
+    totalReceived = filteredPayments
+      .filter((p) => p.currency === primaryCurrency)
+      .reduce((s, p) => s + Number(p.total_amount), 0);
+    totalReceivedCurrency = primaryCurrency;
+  }
 
   return (
     <div className="p-8 space-y-8">
@@ -207,17 +233,29 @@ export default async function DashboardPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {totalReceived != null ? (
-              <p className="text-3xl font-bold text-green-600">
-                {formatCurrency(totalReceived, primaryCurrency!)}
-              </p>
+            {totalReceived != null && totalReceivedCurrency != null ? (
+              <>
+                <p className="text-3xl font-bold text-green-600">
+                  {formatCurrency(totalReceived, totalReceivedCurrency)}
+                </p>
+                {totalReceivedInvoiceCurrency != null && primaryCurrency != null && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatCurrency(totalReceivedInvoiceCurrency, primaryCurrency)} invoiced
+                  </p>
+                )}
+                {!(totalReceivedInvoiceCurrency != null) && (
+                  <p className="text-xs text-muted-foreground mt-1">From payments ledger</p>
+                )}
+              </>
             ) : (
-              <p className="text-3xl font-bold text-green-600">
-                {filteredPayments.length}
-                <span className="text-lg font-normal text-muted-foreground ml-1">pmts.</span>
-              </p>
+              <>
+                <p className="text-3xl font-bold text-green-600">
+                  {filteredPayments.length}
+                  <span className="text-lg font-normal text-muted-foreground ml-1">pmts.</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">From payments ledger</p>
+              </>
             )}
-            <p className="text-xs text-muted-foreground mt-1">From payments ledger</p>
           </CardContent>
         </Card>
 
@@ -234,7 +272,7 @@ export default async function DashboardPage({
               </p>
             ) : (
               <p className="text-3xl font-bold text-amber-600">
-                {sent}
+                {sentCount + partial}
                 <span className="text-lg font-normal text-muted-foreground ml-1">inv.</span>
               </p>
             )}
@@ -244,7 +282,7 @@ export default async function DashboardPage({
       </div>
 
       {/* Status counts */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -263,10 +301,21 @@ export default async function DashboardPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{sent}</p>
+            <p className="text-3xl font-bold">{sentCount}</p>
             {overdue > 0 && (
               <p className="text-xs text-amber-600 mt-1">{overdue} overdue</p>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-blue-200/60 dark:border-blue-900/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-blue-600 flex items-center gap-2">
+              <FileText size={14} /> Partial
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-blue-600">{partial}</p>
           </CardContent>
         </Card>
 
@@ -373,8 +422,17 @@ export default async function DashboardPage({
                   <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 text-muted-foreground">{p.payment_date}</td>
                     <td className="px-4 py-3 font-medium">{p.payer_name}</td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(Number(p.total_amount), p.currency)}
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-medium block">
+                        {p.received_amount && p.received_currency
+                          ? formatCurrency(Number(p.received_amount), p.received_currency as CurrencyCode)
+                          : formatCurrency(Number(p.total_amount), p.currency)}
+                      </span>
+                      {p.received_amount && p.received_currency && (
+                        <span className="text-xs text-muted-foreground block">
+                          {formatCurrency(Number(p.total_amount), p.currency)} invoiced
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">
                       {p.payment_mode?.replace("_", " ") ?? "—"}
