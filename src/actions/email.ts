@@ -1,11 +1,15 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import nodemailer from "nodemailer";
 import { formatCurrency } from "@/lib/currency";
 import { encryptToken, decryptToken } from "@/lib/token-crypto";
+import { renderToBuffer } from "@react-pdf/renderer";
+import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
+import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
+import { registerFonts } from "@/lib/pdf/fonts";
+import React from "react";
 
 function escapeHtml(str: string): string {
   return str
@@ -21,13 +25,19 @@ export async function sendInvoiceEmail(invoiceId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [invoiceRes, tokenRes, settingsRes] = await Promise.all([
+  const [invoiceRes, itemsRes, tokenRes, settingsRes] = await Promise.all([
     supabase
       .from("invoices")
-      .select("id, invoice_number, client_name, client_email, total, currency, due_date")
+      .select("*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)")
       .eq("id", invoiceId)
       .eq("owner_id", user.id)
       .single(),
+    supabase
+      .from("invoice_items")
+      .select("description, quantity, unit_price")
+      .eq("invoice_id", invoiceId)
+      .eq("owner_id", user.id)
+      .order("sort_order"),
     supabase
       .from("oauth_tokens")
       .select("access_token, refresh_token, expires_at")
@@ -66,8 +76,7 @@ export async function sendInvoiceEmail(invoiceId: string) {
   }
 
   const subjectTemplate = settingsRes.data?.email_subject?.trim() || "Invoice {{invoice_number}} — {{amount}} due";
-  const introTemplate = settingsRes.data?.email_intro?.trim() || "Please find your invoice details below.";
-  // Escape template skeletons so user-authored HTML is inert; variable values are also escaped inside applyVars
+  const introTemplate = settingsRes.data?.email_intro?.trim() || "Please find your invoice attached.";
   const emailSubject = applyVars(escapeHtml(subjectTemplate));
   const emailIntro = applyVars(escapeHtml(introTemplate));
 
@@ -99,6 +108,13 @@ export async function sendInvoiceEmail(invoiceId: string) {
       .eq("provider", "google_drive");
   }
 
+  // Generate PDF attachment
+  registerFonts();
+  const invoiceWithItems = { ...invoice, items: itemsRes.data ?? [] };
+  const Template = invoice.template_id === "cream-serif" ? TemplateCreamSerif : TemplateWhiteCaps;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice: invoiceWithItems }) as any);
+
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
@@ -110,8 +126,6 @@ export async function sendInvoiceEmail(invoiceId: string) {
       accessToken: accessToken,
     },
   });
-
-  const pdfUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/invoices/${invoiceId}/pdf`;
 
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #1a1a1a;">
@@ -135,9 +149,6 @@ export async function sendInvoiceEmail(invoiceId: string) {
           <td style="padding: 8px 0; text-align: right;">${escapeHtml(invoice.due_date)}</td>
         </tr>` : ""}
       </table>
-      <a href="${pdfUrl}" style="display: inline-block; background: #1a1a1a; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; margin-top: 8px;">
-        Download Invoice PDF
-      </a>
       <p style="margin-top: 32px; font-size: 13px; color: #999;">
         This email was sent by 7Gence Invoice Maker. Please reply to this email if you have any questions.
       </p>
@@ -149,6 +160,13 @@ export async function sendInvoiceEmail(invoiceId: string) {
     to: invoice.client_email,
     subject: emailSubject,
     html,
+    attachments: [
+      {
+        filename: `Invoice-${invoice.invoice_number}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
   });
 
   return { success: true };
@@ -177,5 +195,4 @@ export async function saveEmailSettings({
     .upsert(patch, { onConflict: "owner_id" });
 
   if (error) throw new Error(error.message);
-  revalidatePath("/integrations");
 }
