@@ -12,7 +12,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const supabase = await createClient();
 
-  const [invoiceRes, itemsRes, driveTokenRes, paymentRecordsRes] = await Promise.all([
+  const [invoiceRes, itemsRes, driveTokenRes, paymentLinksRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
@@ -29,10 +29,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .eq("provider", "google_drive")
       .single(),
     supabase
-      .from("payment_records")
-      .select("id, amount, payment_date, notes, created_at")
+      .from("payment_invoice_links")
+      .select("id, amount_applied, payments(payment_date, payer_name, reference, payment_mode, notes, created_at)")
       .eq("invoice_id", id)
-      .order("payment_date", { ascending: true }),
+      .order("created_at", { ascending: true }),
   ]);
 
   if (!invoiceRes.data) notFound();
@@ -40,7 +40,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const invoice = invoiceRes.data;
   const items = itemsRes.data ?? [];
   const driveConnected = !!driveTokenRes.data;
-  const paymentRecords = paymentRecordsRes.data ?? [];
+  const paymentLinks = paymentLinksRes.data ?? [];
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = (invoice.status === "sent" || invoice.status === "partial") && invoice.due_date < today;
 
@@ -121,6 +121,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {(invoice.business_profiles as Record<string, string>)?.address_line1 && (
               <p className="text-sm text-gray-500">{(invoice.business_profiles as Record<string, string>).address_line1}</p>
             )}
+            {(invoice.business_profiles as Record<string, string>)?.city && (
+              <p className="text-sm text-gray-500">{(invoice.business_profiles as Record<string, string>).city}</p>
+            )}
             {(invoice.business_profiles as Record<string, string>)?.email && (
               <p className="text-sm text-gray-500">{(invoice.business_profiles as Record<string, string>).email}</p>
             )}
@@ -180,11 +183,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {invoice.tax_type === "cgst_sgst" && (
               <>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">CGST ({Number(invoice.cgst_rate) * 100}%)</span>
+                  <span className="text-gray-500">CGST ({(Number(invoice.cgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</span>
                   <span className="text-gray-900">{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">SGST ({Number(invoice.sgst_rate) * 100}%)</span>
+                  <span className="text-gray-500">SGST ({(Number(invoice.sgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</span>
                   <span className="text-gray-900">{formatCurrency(invoice.tax_amount / 2, invoice.currency)}</span>
                 </div>
               </>
@@ -192,7 +195,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {(invoice.tax_type === "igst" || invoice.tax_type === "custom") && invoice.tax_amount > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">
-                  {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({Number(invoice.tax_rate) * 100}%)
+                  {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({(Number(invoice.tax_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)
                 </span>
                 <span className="text-gray-900">{formatCurrency(invoice.tax_amount, invoice.currency)}</span>
               </div>
@@ -270,7 +273,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     })()}
 
       {/* Payment history */}
-      {paymentRecords.length > 0 && (
+      {paymentLinks.length > 0 && (
         <div className="space-y-3">
           <h3 className="font-semibold">Payment History</h3>
           <div className="rounded-lg border border-border overflow-hidden">
@@ -278,18 +281,27 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Payer</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">Amount</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mode</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Reference</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Notes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {paymentRecords.map((pr) => (
-                  <tr key={pr.id}>
-                    <td className="px-4 py-3 text-muted-foreground">{pr.payment_date}</td>
-                    <td className="px-4 py-3 text-right font-medium">{formatCurrency(pr.amount, invoice.currency)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{pr.notes ?? "—"}</td>
-                  </tr>
-                ))}
+                {paymentLinks.map((link) => {
+                  const pm = link.payments as unknown as Record<string, string> | null;
+                  return (
+                    <tr key={link.id}>
+                      <td className="px-4 py-3 text-muted-foreground">{pm?.payment_date ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{pm?.payer_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-right font-medium">{formatCurrency(Number(link.amount_applied), invoice.currency)}</td>
+                      <td className="px-4 py-3 text-muted-foreground capitalize">{pm?.payment_mode?.replace("_", " ") ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{pm?.reference ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{pm?.notes ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

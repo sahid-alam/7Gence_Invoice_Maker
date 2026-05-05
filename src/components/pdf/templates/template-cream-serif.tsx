@@ -23,6 +23,8 @@ const s = StyleSheet.create({
   tableHeaderText: { fontSize: 9, fontWeight: 700, color: "#111" },
   tableRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#D4CFC5", paddingVertical: 8 },
   descCol: { flex: 1, fontSize: 10, color: "#333" },
+  numCol: { width: 40, textAlign: "right", fontSize: 10, color: "#555" },
+  priceCol: { width: 80, textAlign: "right", fontSize: 10, color: "#555" },
   amtCol: { width: 80, textAlign: "right", fontSize: 10, fontWeight: 700, color: "#111" },
   totalsRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 8 },
   totalsBlock: { width: 180 },
@@ -54,6 +56,7 @@ interface InvoiceData {
   total: number;
   client_name: string;
   client_company?: string | null;
+  client_email?: string | null;
   client_address?: string | null;
   client_gstin?: string | null;
   sender_gstin?: string | null;
@@ -109,8 +112,10 @@ export function TemplateCreamSerif({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={s.label}>{isReceipt ? "Received From" : "Billed To"}</Text>
-            <Text style={s.name}>{invoice.client_company || invoice.client_name}</Text>
+            <Text style={s.name}>{invoice.client_name}</Text>
+            {invoice.client_company && <Text style={s.line}>{invoice.client_company}</Text>}
             {invoice.client_address && <Text style={s.line}>{invoice.client_address}</Text>}
+            {invoice.client_email && <Text style={s.line}>{invoice.client_email}</Text>}
             {invoice.client_gstin && <Text style={[s.line, { fontSize: 8 }]}>GSTIN: {invoice.client_gstin}</Text>}
           </View>
         </View>
@@ -122,29 +127,52 @@ export function TemplateCreamSerif({
           <>
             <View style={s.tableHeader}>
               <Text style={[s.tableHeaderText, { flex: 1 }]}>Description</Text>
+              <Text style={[s.tableHeaderText, { width: 40, textAlign: "right" }]}>Qty</Text>
+              <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Price</Text>
               <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Amount</Text>
             </View>
             {invoice.items.map((item, i) => (
               <View key={i} style={s.tableRow}>
                 <Text style={s.descCol}>{item.description}</Text>
+                <Text style={s.numCol}>{item.quantity}</Text>
+                <Text style={s.priceCol}>{formatCurrency(item.unit_price, cur)}</Text>
                 <Text style={s.amtCol}>{formatCurrency(item.quantity * item.unit_price, cur)}</Text>
               </View>
             ))}
 
             <View style={s.totalsRow}>
               <View style={s.totalsBlock}>
+                <View style={s.totalsLine}>
+                  <Text style={s.totalsLabel}>Subtotal</Text>
+                  <Text style={s.totalsValue}>{formatCurrency(invoice.subtotal, cur)}</Text>
+                </View>
                 {invoice.discount_amount > 0 && (
                   <View style={s.totalsLine}>
                     <Text style={s.totalsLabel}>Discount</Text>
                     <Text style={[s.totalsValue, { color: "#16a34a" }]}>−{formatCurrency(invoice.discount_amount, cur)}</Text>
                   </View>
                 )}
-                {invoice.tax_amount > 0 && (
+                {invoice.tax_type === "cgst_sgst" && (
+                  <>
+                    <View style={s.totalsLine}>
+                      <Text style={s.totalsLabel}>CGST ({(Number(invoice.cgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</Text>
+                      <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount / 2, cur)}</Text>
+                    </View>
+                    <View style={s.totalsLine}>
+                      <Text style={s.totalsLabel}>SGST ({(Number(invoice.sgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</Text>
+                      <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount / 2, cur)}</Text>
+                    </View>
+                  </>
+                )}
+                {(invoice.tax_type === "igst" || invoice.tax_type === "custom") && invoice.tax_amount > 0 && (
                   <View style={s.totalsLine}>
-                    <Text style={s.totalsLabel}>Tax</Text>
+                    <Text style={s.totalsLabel}>
+                      {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({(Number(invoice.tax_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)
+                    </Text>
                     <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount, cur)}</Text>
                   </View>
                 )}
+                <View style={[s.divider, { marginVertical: 6 }]} />
                 <View style={s.totalsLine}>
                   <Text style={s.totalFinalLabel}>Total Due</Text>
                   <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>

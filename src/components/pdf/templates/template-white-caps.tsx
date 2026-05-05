@@ -23,8 +23,9 @@ const s = StyleSheet.create({
   tableHeaderText: { fontSize: 8, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#888" },
   tableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#F5F5F5", paddingVertical: 8 },
   descCol: { flex: 1, fontSize: 10 },
-  numCol: { width: 50, textAlign: "right", fontSize: 10, color: "#555" },
-  amtCol: { width: 70, textAlign: "right", fontSize: 10, fontWeight: 700 },
+  numCol: { width: 40, textAlign: "right", fontSize: 10, color: "#555" },
+  priceCol: { width: 80, textAlign: "right", fontSize: 10, color: "#555" },
+  amtCol: { width: 80, textAlign: "right", fontSize: 10, fontWeight: 700 },
   totalsRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 4 },
   totalsBlock: { width: 200 },
   totalsLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
@@ -92,12 +93,14 @@ export function TemplateWhiteCaps({
           <View>
             <Text style={s.title}>{isReceipt ? "Receipt" : "Invoice"}</Text>
             <Text style={s.meta}>#{invoice.invoice_number}</Text>
-            <Text style={s.meta}>{isReceipt ? "PAID:" : "ISSUED:"} {invoice.issue_date}</Text>
-            {!isReceipt && invoice.due_date && <Text style={s.meta}>DUE: {invoice.due_date}</Text>}
           </View>
-          {profile?.logo_url && (
-            <Image src={profile.logo_url} style={{ width: 60, height: 60, objectFit: "contain" }} />
-          )}
+          <View style={{ alignItems: "flex-end" }}>
+            {profile?.logo_url && (
+              <Image src={profile.logo_url} style={{ width: 60, height: 60, objectFit: "contain", marginBottom: 6 }} />
+            )}
+            <Text style={s.meta}>{isReceipt ? "Paid:" : "Issued:"} {invoice.issue_date}</Text>
+            {!isReceipt && invoice.due_date && <Text style={s.meta}>Due: {invoice.due_date}</Text>}
+          </View>
         </View>
 
         <View style={s.divider} />
@@ -129,15 +132,15 @@ export function TemplateWhiteCaps({
           <>
             <View style={s.tableHeader}>
               <Text style={[s.tableHeaderText, { flex: 1 }]}>Description</Text>
-              <Text style={[s.tableHeaderText, { width: 50, textAlign: "right" }]}>Qty</Text>
-              <Text style={[s.tableHeaderText, { width: 70, textAlign: "right" }]}>Price</Text>
-              <Text style={[s.tableHeaderText, { width: 70, textAlign: "right" }]}>Total</Text>
+              <Text style={[s.tableHeaderText, { width: 40, textAlign: "right" }]}>Qty</Text>
+              <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Price</Text>
+              <Text style={[s.tableHeaderText, { width: 80, textAlign: "right" }]}>Total</Text>
             </View>
             {invoice.items.map((item, i) => (
               <View key={i} style={s.tableRow}>
                 <Text style={s.descCol}>{item.description}</Text>
                 <Text style={s.numCol}>{item.quantity}</Text>
-                <Text style={s.numCol}>{formatCurrency(item.unit_price, cur)}</Text>
+                <Text style={s.priceCol}>{formatCurrency(item.unit_price, cur)}</Text>
                 <Text style={s.amtCol}>{formatCurrency(item.quantity * item.unit_price, cur)}</Text>
               </View>
             ))}
@@ -157,11 +160,11 @@ export function TemplateWhiteCaps({
                 {invoice.tax_type === "cgst_sgst" && (
                   <>
                     <View style={s.totalsLine}>
-                      <Text style={s.totalsLabel}>CGST ({(Number(invoice.cgst_rate) * 100).toFixed(0)}%)</Text>
+                      <Text style={s.totalsLabel}>CGST ({(Number(invoice.cgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</Text>
                       <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount / 2, cur)}</Text>
                     </View>
                     <View style={s.totalsLine}>
-                      <Text style={s.totalsLabel}>SGST ({(Number(invoice.sgst_rate) * 100).toFixed(0)}%)</Text>
+                      <Text style={s.totalsLabel}>SGST ({(Number(invoice.sgst_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)</Text>
                       <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount / 2, cur)}</Text>
                     </View>
                   </>
@@ -169,14 +172,14 @@ export function TemplateWhiteCaps({
                 {(invoice.tax_type === "igst" || invoice.tax_type === "custom") && invoice.tax_amount > 0 && (
                   <View style={s.totalsLine}>
                     <Text style={s.totalsLabel}>
-                      {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({(Number(invoice.tax_rate) * 100).toFixed(0)}%)
+                      {invoice.tax_type === "igst" ? "IGST" : "Tax"} ({(Number(invoice.tax_rate) * 100).toFixed(4).replace(/\.?0+$/, '')}%)
                     </Text>
                     <Text style={s.totalsValue}>{formatCurrency(invoice.tax_amount, cur)}</Text>
                   </View>
                 )}
                 <View style={[s.divider, { marginVertical: 6 }]} />
                 <View style={s.totalsLine}>
-                  <Text style={s.totalFinalLabel}>Amount Due</Text>
+                  <Text style={s.totalFinalLabel}>Total Due</Text>
                   <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
                 </View>
               </View>
@@ -201,7 +204,7 @@ export function TemplateWhiteCaps({
         {pm && (
           <>
             <View style={s.divider} />
-            <Text style={s.paymentTitle}>{isReceipt ? "Paid Via:" : "Payment Method:"}</Text>
+            <Text style={s.paymentTitle}>{isReceipt ? "Paid Via" : "Payment Method"}</Text>
             {pm.type === "crypto_wallet" && (
               <View>
                 <Text style={s.paymentLine}>Payment to Wallet ({pm.coin} / {pm.network})</Text>

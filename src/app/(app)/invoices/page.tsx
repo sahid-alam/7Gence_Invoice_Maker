@@ -20,7 +20,7 @@ export default async function InvoicesPage({
 
   let query = supabase
     .from("invoices")
-    .select("id, invoice_number, client_name, total, currency, status, issue_date, due_date, business_profile_id")
+    .select("id, invoice_number, client_name, total, paid_amount, currency, status, issue_date, due_date, business_profile_id")
     .eq("owner_id", user!.id)
     .order("created_at", { ascending: false });
 
@@ -181,8 +181,13 @@ export default async function InvoicesPage({
                     <td className={`px-4 py-3 ${isOverdue ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
                       {inv.due_date || "—"}
                     </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(inv.total, inv.currency)}
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-medium block">{formatCurrency(inv.total, inv.currency)}</span>
+                      {inv.status === "partial" && (
+                        <span className="text-xs text-amber-600 block">
+                          {formatCurrency(inv.total - (inv.paid_amount ?? 0), inv.currency)} due
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={isOverdue ? "overdue" : inv.status} />

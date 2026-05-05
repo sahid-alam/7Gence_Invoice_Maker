@@ -18,11 +18,19 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Send, DollarSign, XCircle, Trash2, Mail, Pencil } from "lucide-react";
-import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce, recordPayment } from "@/actions/invoices";
+import { MoreHorizontal, Send, DollarSign, XCircle, Trash2, Mail, Pencil, Plus, X } from "lucide-react";
+import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
+import { recordPayment, getOutstandingInvoices } from "@/actions/payments";
 import { sendInvoiceEmail } from "@/actions/email";
 import { formatCurrency } from "@/lib/currency";
 import { createClient } from "@/lib/supabase/client";
@@ -30,11 +38,29 @@ import Link from "next/link";
 
 interface Invoice {
   id: string;
+  invoice_number: string;
   status: string;
   total: number;
   paid_amount?: number | null;
   currency: string;
+  client_name: string;
   client_email?: string | null;
+  business_profile_id: string;
+}
+
+interface SplitRow {
+  invoice_id: string;
+  invoice_number: string;
+  amount: string;
+}
+
+interface OutstandingInvoice {
+  id: string;
+  invoice_number: string;
+  client_name: string;
+  total: number;
+  paid_amount: number | null;
+  currency: string;
 }
 
 export function InvoiceActions({ invoice }: { invoice: Invoice }) {
@@ -43,18 +69,109 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
   const [password, setPassword]                   = useState("");
   const [verifying, setVerifying]                 = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [paymentAmount, setPaymentAmount]         = useState("");
-  const [paymentDate, setPaymentDate]             = useState("");
-  const [paymentNotes, setPaymentNotes]           = useState("");
-  const router = useRouter();
 
+  // Payment form state
+  const [payerName, setPayerName]               = useState("");
+  const [paymentDate, setPaymentDate]           = useState("");
+  const [paymentMode, setPaymentMode]           = useState("bank_transfer");
+  const [reference, setReference]               = useState("");
+  const [receivedAmount, setReceivedAmount]     = useState("");
+  const [receivedCurrency, setReceivedCurrency] = useState("INR");
+  const [paymentNotes, setPaymentNotes]         = useState("");
+  const [splits, setSplits]                     = useState<SplitRow[]>([]);
+
+  // Outstanding invoices for split selection
+  const [available, setAvailable]               = useState<OutstandingInvoice[]>([]);
+  const [loadingInvoices, setLoadingInvoices]   = useState(false);
+
+  const router = useRouter();
   const remaining = invoice.total - (invoice.paid_amount ?? 0);
 
   function openPaymentDialog() {
-    setPaymentAmount(String(Math.round(remaining * 100) / 100));
+    setPayerName(invoice.client_name);
     setPaymentDate(new Date().toISOString().split("T")[0]);
+    setPaymentMode("bank_transfer");
+    setReference("");
+    setReceivedAmount("");
+    setReceivedCurrency("INR");
     setPaymentNotes("");
+    setSplits([{
+      invoice_id: invoice.id,
+      invoice_number: "",
+      amount: String(Math.round(remaining * 100) / 100),
+    }]);
+    setAvailable([]);
     setShowPaymentDialog(true);
+  }
+
+  async function loadAvailableInvoices() {
+    if (available.length > 0) return;
+    setLoadingInvoices(true);
+    try {
+      const data = await getOutstandingInvoices(invoice.business_profile_id, invoice.currency);
+      setAvailable(data);
+    } catch {
+      toast.error("Failed to load invoices");
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }
+
+  function addSplitRow() {
+    loadAvailableInvoices();
+    setSplits((prev) => [...prev, { invoice_id: "", invoice_number: "", amount: "" }]);
+  }
+
+  function removeSplitRow(idx: number) {
+    setSplits((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateSplitAmount(idx: number, value: string) {
+    setSplits((prev) => prev.map((r, i) => i === idx ? { ...r, amount: value } : r));
+  }
+
+  function updateSplitInvoice(idx: number, invoiceId: string) {
+    const inv = available.find((i) => i.id === invoiceId);
+    if (!inv) return;
+    const rem = inv.total - (inv.paid_amount ?? 0);
+    setSplits((prev) =>
+      prev.map((r, i) =>
+        i === idx
+          ? { invoice_id: inv.id, invoice_number: inv.invoice_number, amount: String(Math.round(rem * 100) / 100) }
+          : r
+      )
+    );
+  }
+
+  const computedTotal = splits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+
+  async function handleRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await recordPayment({
+        business_profile_id: invoice.business_profile_id,
+        payer_name: payerName,
+        total_amount: computedTotal,
+        currency: invoice.currency,
+        received_amount: receivedAmount ? parseFloat(receivedAmount) : undefined,
+        received_currency: receivedAmount ? receivedCurrency : undefined,
+        payment_date: paymentDate,
+        payment_mode: paymentMode,
+        reference: reference || undefined,
+        notes: paymentNotes || undefined,
+        splits: splits
+          .filter((s) => s.invoice_id && parseFloat(s.amount) > 0)
+          .map((s) => ({ invoice_id: s.invoice_id, amount_applied: parseFloat(s.amount) })),
+      });
+      toast.success("Payment recorded");
+      setShowPaymentDialog(false);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleAction(action: () => Promise<void>, successMsg: string) {
@@ -77,21 +194,6 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
       toast.success("Email sent to client");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send email");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleRecordPayment(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await recordPayment(invoice.id, Number(paymentAmount), paymentDate, paymentNotes || undefined);
-      toast.success("Payment recorded");
-      setShowPaymentDialog(false);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to record payment");
     } finally {
       setLoading(false);
     }
@@ -125,6 +227,9 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
       setVerifying(false);
     }
   }
+
+  // Invoices already selected in other split rows (excluding the current row)
+  const selectedIds = splits.filter((s) => s.invoice_id).map((s) => s.invoice_id);
 
   return (
     <>
@@ -205,7 +310,7 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
 
       {/* Record Payment dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
             <DialogDescription>
@@ -213,41 +318,173 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleRecordPayment} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-amount">Amount</Label>
-              <Input
-                id="payment-amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={String(Math.round(remaining * 100) / 100)}
-                placeholder="0.00"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                required
-                autoFocus
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="payer-name">Payer Name</Label>
+                <Input
+                  id="payer-name"
+                  value={payerName}
+                  onChange={(e) => setPayerName(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-date">Payment Date</Label>
+                <Input
+                  id="payment-date"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  required
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-date">Payment Date</Label>
-              <Input
-                id="payment-date"
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                required
-              />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Payment Mode</Label>
+                <Select value={paymentMode} onValueChange={setPaymentMode}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="crypto">Crypto</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reference">Reference (optional)</Label>
+                <Input
+                  id="reference"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder={paymentMode === "upi" ? "UPI ref" : paymentMode === "crypto" ? "0x... | UTR-123" : "UTR / ref"}
+                />
+              </div>
             </div>
+
+            {paymentMode === "crypto" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="received-amount">Received Amount</Label>
+                  <Input
+                    id="received-amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={receivedAmount}
+                    onChange={(e) => setReceivedAmount(e.target.value)}
+                    placeholder="e.g. 41500"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="received-currency">Local Currency</Label>
+                  <Input
+                    id="received-currency"
+                    value={receivedCurrency}
+                    onChange={(e) => setReceivedCurrency(e.target.value.toUpperCase())}
+                    placeholder="INR"
+                    maxLength={3}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="payment-notes">Notes (optional)</Label>
               <Input
                 id="payment-notes"
-                type="text"
-                placeholder="e.g. Wire transfer ref #1234"
                 value={paymentNotes}
                 onChange={(e) => setPaymentNotes(e.target.value)}
+                placeholder="Any additional notes"
               />
             </div>
+
+            {/* Invoice splits */}
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Invoice Splits</Label>
+              {splits.map((split, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  {idx === 0 ? (
+                    <div className="flex-1 px-3 py-2 rounded-md border border-border bg-muted/50 text-sm font-mono text-muted-foreground">
+                      {invoice.invoice_number}
+                    </div>
+                  ) : (
+                    <Select
+                      value={split.invoice_id}
+                      onValueChange={(val) => updateSplitInvoice(idx, val)}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select invoice" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {loadingInvoices ? (
+                          <SelectItem value="_loading" disabled>Loading…</SelectItem>
+                        ) : (
+                          available
+                            .filter((inv) => inv.id === split.invoice_id || !selectedIds.includes(inv.id))
+                            .map((inv) => {
+                              const due = inv.total - (inv.paid_amount ?? 0);
+                              const label = `${inv.invoice_number} · ${inv.client_name} — ${formatCurrency(due, inv.currency)} due`;
+                              return (
+                                <SelectItem key={inv.id} value={inv.id} textValue={label}>
+                                  <span className="font-mono">{inv.invoice_number}</span>
+                                  <span className="text-muted-foreground ml-2">· {inv.client_name}</span>
+                                  <span className="text-muted-foreground ml-2">— {formatCurrency(due, inv.currency)} due</span>
+                                </SelectItem>
+                              );
+                            })
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className="w-28"
+                    value={split.amount}
+                    onChange={(e) => updateSplitAmount(idx, e.target.value)}
+                    placeholder="Amount"
+                    required
+                  />
+                  {idx > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="px-2 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeSplitRow(idx)}
+                    >
+                      <X size={14} />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full text-xs"
+                onClick={addSplitRow}
+              >
+                <Plus size={12} className="mr-1" /> Add invoice to this payment
+              </Button>
+            </div>
+
+            {splits.length > 1 && (
+              <div className="flex justify-between text-sm font-semibold border-t pt-2">
+                <span>Total</span>
+                <span>{formatCurrency(computedTotal, invoice.currency)}</span>
+              </div>
+            )}
+
             <DialogFooter>
               <Button
                 type="button"
@@ -257,7 +494,10 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading || !paymentAmount || !paymentDate}>
+              <Button
+                type="submit"
+                disabled={loading || !payerName || !paymentDate || splits.some((s) => !s.invoice_id || !parseFloat(s.amount))}
+              >
                 {loading ? "Recording…" : "Record Payment"}
               </Button>
             </DialogFooter>
