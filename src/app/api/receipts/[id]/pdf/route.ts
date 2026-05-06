@@ -18,7 +18,7 @@ export async function GET(
 
   const { data: receipt } = await supabase
     .from("receipts")
-    .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+    .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url), invoices(invoice_number)`)
     .eq("id", id)
     .eq("owner_id", user.id)
     .single();
@@ -46,6 +46,7 @@ export async function GET(
     client_gstin: null,
     sender_gstin: null,
     notes: receipt.notes,
+    linked_invoice_number: (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null,
     payment_method_snapshot: receipt.payment_method_snapshot as Record<string, string> | null,
     business_profiles: receipt.business_profiles,
     items: [],

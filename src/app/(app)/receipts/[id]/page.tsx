@@ -15,7 +15,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
   const [receiptRes, driveTokenRes] = await Promise.all([
     supabase
       .from("receipts")
-      .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+      .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url), invoices(invoice_number)`)
       .eq("id", id)
       .single(),
     supabase
@@ -31,6 +31,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
 
   const pm = receipt.payment_method_snapshot as Record<string, string> | null;
   const profile = receipt.business_profiles as Record<string, string> | null;
+  const linkedInvoiceNumber = (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null;
 
   return (
     <div className="p-8 max-w-4xl space-y-6">
@@ -96,14 +97,14 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
         <div className="flex justify-between items-end">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Payment For</p>
-            {receipt.invoice_id ? (
+            {receipt.invoice_id && linkedInvoiceNumber ? (
               <p className="text-sm text-gray-600">
                 Invoice{" "}
                 <Link
                   href={`/invoices/${receipt.invoice_id}`}
                   className="underline text-gray-900 hover:text-gray-600"
                 >
-                  #{receipt.receipt_number.replace("REC-", "INV-")}
+                  #{linkedInvoiceNumber}
                 </Link>
               </p>
             ) : (

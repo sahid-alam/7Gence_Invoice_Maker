@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/token-crypto";
 import { renderToBuffer } from "@react-pdf/renderer";
@@ -50,8 +51,47 @@ async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClie
   return refreshed.access_token;
 }
 
-async function uploadPdfToDrive(accessToken: string, pdfBuffer: Buffer, filename: string): Promise<string> {
-  const metadata = { name: filename, mimeType: "application/pdf" };
+async function getOrCreateFolder(accessToken: string, name: string, parentId?: string): Promise<string> {
+  const conditions = [
+    `name = '${name.replace(/'/g, "\\'")}'`,
+    "mimeType = 'application/vnd.google-apps.folder'",
+    "trashed = false",
+  ];
+  if (parentId) conditions.push(`'${parentId}' in parents`);
+
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(conditions.join(" and "))}&fields=files(id)&spaces=drive`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (searchRes.ok) {
+    const data = await searchRes.json() as { files: { id: string }[] };
+    if (data.files.length > 0) return data.files[0].id;
+  }
+
+  const body: Record<string, unknown> = { name, mimeType: "application/vnd.google-apps.folder" };
+  if (parentId) body.parents = [parentId];
+
+  const createRes = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!createRes.ok) throw new Error(`Drive: could not create folder "${name}"`);
+  const folder = await createRes.json() as { id: string };
+  return folder.id;
+}
+
+async function uploadPdfToDrive(
+  accessToken: string,
+  pdfBuffer: Buffer,
+  filename: string,
+  parentId?: string
+): Promise<{ id: string; webViewLink: string }> {
+  const metadata: Record<string, unknown> = { name: filename, mimeType: "application/pdf" };
+  if (parentId) metadata.parents = [parentId];
+
   const boundary = "-------7Gence_boundary";
 
   const metaBytes = new TextEncoder().encode(
@@ -84,8 +124,7 @@ async function uploadPdfToDrive(accessToken: string, pdfBuffer: Buffer, filename
     throw new Error(`Drive upload failed: ${err}`);
   }
 
-  const file = await uploadRes.json() as { id: string; webViewLink: string };
-  return file.webViewLink;
+  return uploadRes.json() as Promise<{ id: string; webViewLink: string }>;
 }
 
 export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: string }> {
@@ -98,7 +137,7 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
   const [invoiceRes, itemsRes] = await Promise.all([
     supabase
       .from("invoices")
-      .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+      .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url, drive_root_folder_id)`)
       .eq("id", invoiceId)
       .eq("owner_id", user.id)
       .single(),
@@ -112,20 +151,42 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
 
   if (!invoiceRes.data) throw new Error("Invoice not found");
 
-  registerFonts();
   const invoice = { ...invoiceRes.data, items: itemsRes.data ?? [] };
+  const profile = invoice.business_profiles as Record<string, string> | null;
+  const profileName = profile?.display_name ?? "Default";
+
+  // Resolve folder hierarchy: 7Gence Invoice Maker / {Profile} / Invoices
+  let profileFolderId = profile?.drive_root_folder_id ?? null;
+  if (!profileFolderId) {
+    const rootFolderId = await getOrCreateFolder(accessToken, "7Gence Invoice Maker");
+    profileFolderId = await getOrCreateFolder(accessToken, profileName, rootFolderId);
+    await supabase
+      .from("business_profiles")
+      .update({ drive_root_folder_id: profileFolderId })
+      .eq("id", invoice.business_profile_id);
+  }
+  const invoicesFolderId = await getOrCreateFolder(accessToken, "Invoices", profileFolderId);
+
+  registerFonts();
   const Template = invoice.template_id === "cream-serif" ? TemplateCreamSerif : TemplateWhiteCaps;
 
+  let fileId: string;
   let url: string;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice }) as any);
-    url = await uploadPdfToDrive(accessToken, pdfBuffer, `Invoice-${invoice.invoice_number}.pdf`);
+    const result = await uploadPdfToDrive(accessToken, pdfBuffer, `Invoice-${invoice.invoice_number}.pdf`, invoicesFolderId);
+    fileId = result.id;
+    url = result.webViewLink;
   } catch (err) {
     throw new Error(err instanceof Error ? err.message : "Drive export failed — check your Google connection");
   }
 
-  await supabase.from("invoices").update({ drive_url: url }).eq("id", invoiceId).eq("owner_id", user.id);
+  await supabase
+    .from("invoices")
+    .update({ drive_url: url, drive_file_id: fileId })
+    .eq("id", invoiceId)
+    .eq("owner_id", user.id);
 
   return { url };
 }
@@ -139,12 +200,27 @@ export async function exportReceiptToDrive(receiptId: string): Promise<{ url: st
 
   const { data: receipt } = await supabase
     .from("receipts")
-    .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
+    .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url, drive_root_folder_id), invoices(invoice_number)`)
     .eq("id", receiptId)
     .eq("owner_id", user.id)
     .single();
 
   if (!receipt) throw new Error("Receipt not found");
+
+  const profile = receipt.business_profiles as Record<string, string> | null;
+  const profileName = profile?.display_name ?? "Default";
+
+  // Resolve folder hierarchy: 7Gence Invoice Maker / {Profile} / Receipts
+  let profileFolderId = profile?.drive_root_folder_id ?? null;
+  if (!profileFolderId) {
+    const rootFolderId = await getOrCreateFolder(accessToken, "7Gence Invoice Maker");
+    profileFolderId = await getOrCreateFolder(accessToken, profileName, rootFolderId);
+    await supabase
+      .from("business_profiles")
+      .update({ drive_root_folder_id: profileFolderId })
+      .eq("id", receipt.business_profile_id);
+  }
+  const receiptsFolderId = await getOrCreateFolder(accessToken, "Receipts", profileFolderId);
 
   registerFonts();
 
@@ -167,20 +243,64 @@ export async function exportReceiptToDrive(receiptId: string): Promise<{ url: st
     client_gstin: null,
     sender_gstin: null,
     notes: receipt.notes,
+    linked_invoice_number: (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null,
     payment_method_snapshot: receipt.payment_method_snapshot as Record<string, string> | null,
     business_profiles: receipt.business_profiles,
-    items: [{ description: `Payment Receipt — ${receipt.receipt_number}`, quantity: 1, unit_price: receipt.amount }],
+    items: [],
   };
 
   const Template = receipt.template_id === "cream-serif" ? TemplateCreamSerif : TemplateWhiteCaps;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice: receiptData }) as any);
+  const pdfBuffer = await renderToBuffer(React.createElement(Template, { invoice: receiptData, documentType: "receipt" }) as any);
+  const { id: fileId, webViewLink } = await uploadPdfToDrive(
+    accessToken, pdfBuffer, `Receipt-${receipt.receipt_number}.pdf`, receiptsFolderId
+  );
 
-  const url = await uploadPdfToDrive(accessToken, pdfBuffer, `Receipt-${receipt.receipt_number}.pdf`);
+  await supabase
+    .from("receipts")
+    .update({ drive_url: webViewLink, drive_file_id: fileId })
+    .eq("id", receiptId)
+    .eq("owner_id", user.id);
 
-  await supabase.from("receipts").update({ drive_url: url }).eq("id", receiptId).eq("owner_id", user.id);
+  return { url: webViewLink };
+}
 
-  return { url };
+export async function removeFromDrive(kind: "invoice" | "receipt", id: string): Promise<{ deleted: boolean }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const table = kind === "invoice" ? "invoices" : "receipts";
+
+  const { data: record } = await supabase
+    .from(table)
+    .select("drive_file_id")
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .single();
+
+  let deleted = false;
+  if (record?.drive_file_id) {
+    const accessToken = await getValidDriveToken(supabase, user.id);
+    const delRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${record.drive_file_id}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    // 404 means already gone — still clean up DB
+    if (!delRes.ok && delRes.status !== 404) {
+      throw new Error("Failed to remove file from Drive");
+    }
+    deleted = true;
+  }
+
+  await supabase
+    .from(table)
+    .update({ drive_url: null, drive_file_id: null })
+    .eq("id", id)
+    .eq("owner_id", user.id);
+
+  revalidatePath(`/${kind === "invoice" ? "invoices" : "receipts"}/${id}`);
+  return { deleted };
 }
 
 export async function disconnectGoogleDrive() {

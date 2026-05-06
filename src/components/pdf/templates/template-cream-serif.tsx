@@ -61,6 +61,7 @@ interface InvoiceData {
   client_gstin?: string | null;
   sender_gstin?: string | null;
   notes?: string | null;
+  linked_invoice_number?: string | null;
   payment_method_snapshot?: Record<string, string> | null;
   business_profiles?: {
     display_name?: string;
@@ -93,8 +94,18 @@ export function TemplateCreamSerif({
         <View style={s.header}>
           <Text style={s.invoiceTitle}>{isReceipt ? "Receipt" : "Invoice"}</Text>
           <View style={s.metaBlock}>
-            <Text style={s.metaDate}>{invoice.issue_date}</Text>
-            <Text style={s.metaNumber}>{isReceipt ? "Receipt No." : "Invoice No."} {invoice.invoice_number}</Text>
+            {isReceipt ? (
+              <>
+                <Text style={{ fontSize: 8, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#888" }}>Payment Date</Text>
+                <Text style={{ fontSize: 12, fontWeight: 700, color: "#111", marginTop: 3 }}>{invoice.issue_date}</Text>
+                <Text style={[s.metaNumber, { marginTop: 6 }]}>Receipt No. {invoice.invoice_number}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={s.metaDate}>{invoice.issue_date}</Text>
+                <Text style={s.metaNumber}>Invoice No. {invoice.invoice_number}</Text>
+              </>
+            )}
           </View>
         </View>
 
@@ -182,14 +193,21 @@ export function TemplateCreamSerif({
           </>
         )}
 
-        {/* Receipt: amount received */}
+        {/* Receipt: payment for + amount received */}
         {isReceipt && (
-          <View style={s.totalsRow}>
-            <View style={s.totalsBlock}>
-              <View style={s.totalsLine}>
-                <Text style={s.totalFinalLabel}>Amount Received</Text>
-                <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
-              </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <View>
+              <Text style={s.label}>Payment For</Text>
+              {invoice.linked_invoice_number ? (
+                <Text style={{ fontSize: 10, color: "#555" }}>Invoice #{invoice.linked_invoice_number}</Text>
+              ) : (
+                <Text style={{ fontSize: 10, color: "#999" }}>Standalone payment</Text>
+              )}
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={s.label}>Amount Received</Text>
+              <Text style={{ fontSize: 30, fontWeight: 700, color: "#111" }}>{formatCurrency(invoice.total, cur)}</Text>
+              <Text style={{ fontSize: 9, color: "#888", marginTop: 2 }}>{invoice.currency}</Text>
             </View>
           </View>
         )}
@@ -204,7 +222,7 @@ export function TemplateCreamSerif({
               <>
                 <Text style={s.paymentLabel}>
                   {isReceipt
-                    ? "Paid Via"
+                    ? "Via"
                     : pm.type === "bank_transfer"
                     ? "Bank Details"
                     : pm.type === "crypto_wallet"
@@ -222,7 +240,7 @@ export function TemplateCreamSerif({
                 )}
                 {pm.type === "crypto_wallet" && (
                   <>
-                    <Text style={s.paymentLine}>{pm.coin} / {pm.network}</Text>
+                    <Text style={s.paymentLine}>{pm.coin} ({pm.network})</Text>
                     <Text style={s.walletAddress}>{pm.wallet_address}</Text>
                     {pm.account_name && <Text style={s.paymentLine}>Account: {pm.account_name}</Text>}
                   </>

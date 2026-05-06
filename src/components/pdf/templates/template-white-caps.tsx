@@ -60,6 +60,7 @@ interface InvoiceData {
   sender_gstin?: string | null;
   notes?: string | null;
   terms?: string | null;
+  linked_invoice_number?: string | null;
   payment_method_snapshot?: Record<string, string> | null;
   business_profiles?: {
     display_name?: string;
@@ -98,8 +99,17 @@ export function TemplateWhiteCaps({
             {profile?.logo_url && (
               <Image src={profile.logo_url} style={{ width: 60, height: 60, objectFit: "contain", marginBottom: 6 }} />
             )}
-            <Text style={s.meta}>{isReceipt ? "Paid:" : "Issued:"} {invoice.issue_date}</Text>
-            {!isReceipt && invoice.due_date && <Text style={s.meta}>Due: {invoice.due_date}</Text>}
+            {isReceipt ? (
+              <>
+                <Text style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#888" }}>Payment Date</Text>
+                <Text style={{ fontSize: 11, fontWeight: 700, color: "#1a1a1a", marginTop: 3 }}>{invoice.issue_date}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={s.meta}>Issued: {invoice.issue_date}</Text>
+                {invoice.due_date && <Text style={s.meta}>Due: {invoice.due_date}</Text>}
+              </>
+            )}
           </View>
         </View>
 
@@ -187,15 +197,21 @@ export function TemplateWhiteCaps({
           </>
         )}
 
-        {/* Receipt: amount received */}
+        {/* Receipt: payment for + amount received */}
         {isReceipt && (
-          <View style={s.totalsRow}>
-            <View style={s.totalsBlock}>
-              <View style={[s.divider, { marginVertical: 6 }]} />
-              <View style={s.totalsLine}>
-                <Text style={s.totalFinalLabel}>Amount Received</Text>
-                <Text style={s.totalFinalValue}>{formatCurrency(invoice.total, cur)}</Text>
-              </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
+            <View>
+              <Text style={s.label}>Payment For</Text>
+              {invoice.linked_invoice_number ? (
+                <Text style={{ fontSize: 10, color: "#555" }}>Invoice #{invoice.linked_invoice_number}</Text>
+              ) : (
+                <Text style={{ fontSize: 10, color: "#999" }}>Standalone payment</Text>
+              )}
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={s.label}>Amount Received</Text>
+              <Text style={{ fontSize: 30, fontWeight: 700, color: "#1a1a1a" }}>{formatCurrency(invoice.total, cur)}</Text>
+              <Text style={{ fontSize: 9, color: "#888", marginTop: 2 }}>{invoice.currency}</Text>
             </View>
           </View>
         )}
@@ -204,10 +220,10 @@ export function TemplateWhiteCaps({
         {pm && (
           <>
             <View style={s.divider} />
-            <Text style={s.paymentTitle}>{isReceipt ? "Paid Via" : "Payment Method"}</Text>
+            <Text style={s.paymentTitle}>{isReceipt ? "Via" : "Payment Method"}</Text>
             {pm.type === "crypto_wallet" && (
               <View>
-                <Text style={s.paymentLine}>Payment to Wallet ({pm.coin} / {pm.network})</Text>
+                <Text style={s.paymentLine}>{pm.coin} ({pm.network})</Text>
                 <Text style={s.walletAddress}>{pm.wallet_address}</Text>
                 {pm.account_name && <Text style={s.paymentLine}>Account Name: {pm.account_name}</Text>}
               </View>
