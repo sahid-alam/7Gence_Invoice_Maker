@@ -6,6 +6,8 @@ import { FYFilter } from "@/components/filters/fy-filter";
 import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
 import { Banknote, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeletePaymentButton } from "@/components/payments/delete-payment-button";
+import { SettlePaymentButton } from "@/components/payments/settle-payment-button";
 
 export default async function PaymentsPage({
   searchParams,
@@ -105,6 +107,7 @@ export default async function PaymentsPage({
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mode</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Reference</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Invoice(s)</th>
+                <th className="w-24" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -122,11 +125,16 @@ export default async function PaymentsPage({
                       <span className="font-medium block">
                         {formatCurrency(pay.total_amount, pay.currency)}
                       </span>
-                      {pay.received_amount && pay.received_currency && (
+                      {pay.received_amount && pay.received_currency ? (
                         <span className="text-xs text-muted-foreground block">
                           {formatCurrency(pay.received_amount, pay.received_currency)} received
                         </span>
-                      )}
+                      ) : pay.payment_mode === "crypto" ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                          Pending settlement
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">
                       {pay.payment_mode?.replace("_", " ") ?? "—"}
@@ -148,6 +156,14 @@ export default async function PaymentsPage({
                               </Link>
                             </span>
                           ))}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        {pay.payment_mode === "crypto" && !pay.received_amount && (
+                          <SettlePaymentButton paymentId={pay.id} invoiceCurrency={pay.currency} />
+                        )}
+                        <DeletePaymentButton paymentId={pay.id} payerName={pay.payer_name} />
+                      </div>
                     </td>
                   </tr>
                 );

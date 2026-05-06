@@ -19,6 +19,64 @@ import { disconnectGoogleDrive } from "@/actions/integrations";
 import { saveEmailSettings } from "@/actions/email";
 import { useRouter } from "next/navigation";
 
+const PREVIEW_VARS: Record<string, string> = {
+  client_name: "Raj Mehta",
+  invoice_number: "7GS-2026-042",
+  amount: "$1,500.00",
+  due_date: "2026-06-15",
+};
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+function applyVars(template: string): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+    escapeHtml(PREVIEW_VARS[key] ?? `{{${key}}}`)
+  );
+}
+
+function buildPreviewHtml(intro: string, subject: string): string {
+  const processedIntro = applyVars(escapeHtml(intro));
+  const processedSubject = applyVars(escapeHtml(subject));
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f4f4f5;">
+<div style="padding:24px 16px;">
+  <div style="background:#fff;border-radius:8px;border:1px solid #e5e7eb;padding:28px 28px 24px;max-width:520px;margin:0 auto;font-family:Arial,sans-serif;color:#1a1a1a;">
+    <p style="font-size:11px;color:#999;margin:0 0 4px;">Subject: <strong style="color:#555;">${processedSubject}</strong></p>
+    <hr style="border:none;border-top:1px solid #f0f0f0;margin:12px 0 20px;" />
+    <h2 style="font-size:18px;margin:0 0 2px;">Invoice 7GS-2026-042</h2>
+    <p style="color:#888;margin:0 0 16px;font-size:13px;">from 7Gence</p>
+    <hr style="border:none;border-top:1px solid #e5e5e5;margin:0 0 20px;" />
+    <p style="margin:0 0 8px;">Hi Raj Mehta,</p>
+    <p style="margin:0 0 16px;">${processedIntro}</p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 16px;">
+      <tr>
+        <td style="padding:7px 0;color:#666;font-size:14px;">Invoice number</td>
+        <td style="padding:7px 0;text-align:right;font-weight:600;font-size:14px;">7GS-2026-042</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;color:#666;font-size:14px;">Amount due</td>
+        <td style="padding:7px 0;text-align:right;font-weight:600;font-size:14px;">$1,500.00</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;color:#666;font-size:14px;">Due date</td>
+        <td style="padding:7px 0;text-align:right;font-size:14px;">2026-06-15</td>
+      </tr>
+    </table>
+    <div style="background:#f9fafb;border-radius:6px;padding:10px 12px;margin-bottom:20px;">
+      <p style="margin:0;font-size:12px;color:#888;">📎 Invoice-7GS-2026-042.pdf <span style="color:#bbb;">· attached</span></p>
+    </div>
+    <p style="margin:0;font-size:12px;color:#aaa;">This email was sent by 7Gence Invoice Maker. Please reply to this email if you have any questions.</p>
+  </div>
+</div>
+</body></html>`;
+}
+
 const DEFAULT_SUBJECT = "Invoice {{invoice_number}} — {{amount}} due";
 const DEFAULT_INTRO = "Please find your invoice details below.";
 
@@ -46,6 +104,7 @@ export function GoogleIntegrationCard({ connected, gmailUser, emailSubject, emai
   const [subject, setSubject] = useState(emailSubject || DEFAULT_SUBJECT);
   const [intro, setIntro] = useState(emailIntro || DEFAULT_INTRO);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const router = useRouter();
 
   async function handleDisconnect() {
@@ -203,10 +262,42 @@ export function GoogleIntegrationCard({ connected, gmailUser, emailSubject, emai
                 />
               </div>
 
-              <Button type="submit" size="sm" disabled={savingTemplate}>
-                {savingTemplate ? "Saving…" : "Save template"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm" disabled={savingTemplate}>
+                  {savingTemplate ? "Saving…" : "Save template"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowPreview((v) => !v)}
+                >
+                  {showPreview ? "Hide preview" : "Preview email"}
+                </Button>
+              </div>
             </form>
+
+            {/* Live email preview */}
+            {showPreview && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Live preview</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sample data — updates as you edit the template above.
+                  </p>
+                  <div className="rounded-lg border border-border overflow-hidden bg-[#f4f4f5]">
+                    <iframe
+                      srcDoc={buildPreviewHtml(intro, subject)}
+                      className="w-full"
+                      style={{ height: 480, border: "none" }}
+                      title="Email preview"
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </SheetContent>
       </Sheet>

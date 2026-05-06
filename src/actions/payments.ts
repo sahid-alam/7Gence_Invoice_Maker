@@ -212,6 +212,30 @@ export async function deletePayment(id: string) {
   revalidatePath("/receipts");
 }
 
+export async function updatePaymentSettlement(
+  id: string,
+  received_amount: number,
+  received_currency: string
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  if (received_amount <= 0) throw new Error("Received amount must be positive");
+  if (!received_currency.trim()) throw new Error("Received currency is required");
+
+  const { error } = await supabase
+    .from("payments")
+    .update({ received_amount, received_currency: received_currency.trim().toUpperCase() })
+    .eq("id", id)
+    .eq("owner_id", user.id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/payments");
+  revalidatePath("/dashboard");
+}
+
 export async function getOutstandingInvoices(profileId: string, currency: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
