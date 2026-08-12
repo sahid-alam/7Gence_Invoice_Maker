@@ -293,7 +293,10 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               </DropdownMenuItem>
             </>
           )}
-          {invoice.status === "draft" && (
+          {/* Void belongs here too: a cancelled invoice has no financial effect, and
+              without this there was no way to remove one at all — which also made its
+              sender profile undeletable, since invoices block that. */}
+          {(invoice.status === "draft" || invoice.status === "void") && (
             <DropdownMenuItem
               className="text-destructive"
               onClick={() => handleAction(
@@ -301,7 +304,8 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
                 "Invoice deleted"
               )}
             >
-              <Trash2 size={14} className="mr-2" /> Delete Draft
+              <Trash2 size={14} className="mr-2" />
+              {invoice.status === "void" ? "Delete Invoice" : "Delete Draft"}
             </DropdownMenuItem>
           )}
           {(invoice.status === "paid" || invoice.status === "partial") && (

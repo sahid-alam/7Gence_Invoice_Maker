@@ -101,8 +101,11 @@ export async function deleteProfile(id: string) {
   if (invoiceCount) blockers.push(`${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`);
   if (receiptCount) blockers.push(`${receiptCount} receipt${receiptCount === 1 ? "" : "s"}`);
   if (blockers.length) {
+    // Say "delete", not "void". Voiding leaves the row in place, so the foreign key
+    // still blocks this — an earlier version of this message suggested voiding and
+    // sent people down a dead end.
     throw new Error(
-      `This identity still has ${blockers.join(" and ")}. Delete or void ${blockers.length > 1 ? "them" : "those"} first — removing it now would orphan documents you may need at audit.`
+      `This identity still has ${blockers.join(" and ")}. Delete ${blockers.length > 1 ? "them" : "those"} first — voiding isn't enough, the records still exist. Open each one and use Delete from its actions menu.`
     );
   }
 

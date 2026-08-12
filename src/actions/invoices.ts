@@ -341,16 +341,52 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
   redirect(`/invoices/${id}?saved=Changes+saved`);
 }
 
+/**
+ * Delete a draft or a voided invoice.
+ *
+ * Both are documents with no financial effect: a draft was never issued, and a void
+ * has been cancelled. Anything with money against it goes through
+ * `deleteInvoiceForce`, which asks for a password.
+ *
+ * This used to filter `.eq("status","draft")` inside the delete itself. On any other
+ * status that matched zero rows and returned no error — so the action redirected
+ * saying "Invoice deleted" having deleted nothing. Check first, and say what's wrong.
+ */
 export async function deleteInvoice(id: string) {
   const member = await requireMember();
   const supabase = await createClient();
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id, status, invoice_number")
+    .eq("id", id)
+    .eq("org_id", member.orgId)
+    .single();
+  if (!invoice) throw new Error("Invoice not found");
+
+  if (invoice.status !== "draft" && invoice.status !== "void") {
+    throw new Error(
+      `${invoice.invoice_number} is ${invoice.status}. Void it first, or use Delete Invoice if it has payments against it.`
+    );
+  }
+
+  // A void invoice can still carry payment links if it was voided after a part
+  // payment. Deleting it would take the links with it and silently change earnings.
+  const { count } = await supabase
+    .from("payment_invoice_links")
+    .select("id", { count: "exact", head: true })
+    .eq("invoice_id", id);
+  if ((count ?? 0) > 0) {
+    throw new Error(
+      `${invoice.invoice_number} has payments recorded against it — remove those from the Payments page first.`
+    );
+  }
 
   const { error } = await supabase
     .from("invoices")
     .delete()
     .eq("id", id)
-    .eq("org_id", member.orgId)
-    .eq("status", "draft");
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
   revalidatePath("/invoices");
