@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
@@ -12,20 +13,20 @@ export default async function ReceiptsPage({
   searchParams: Promise<{ profile?: string; fy?: string }>;
 }) {
   const { profile, fy } = await searchParams;
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const [profilesRes, receiptsRes] = await Promise.all([
     supabase
       .from("business_profiles")
       .select("id, display_name, country")
-      .eq("owner_id", user!.id)
+      .eq("org_id", member.orgId)
       .order("display_name"),
     (() => {
       let q = supabase
         .from("receipts")
         .select("id, receipt_number, client_name, amount, currency, payment_date, invoice_id, business_profile_id")
-        .eq("owner_id", user!.id)
+        .eq("org_id", member.orgId)
         .order("created_at", { ascending: false });
       if (profile) q = q.eq("business_profile_id", profile);
       return q;
@@ -48,7 +49,7 @@ export default async function ReceiptsPage({
     : receipts;
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Receipts</h2>
@@ -78,7 +79,7 @@ export default async function ReceiptsPage({
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>

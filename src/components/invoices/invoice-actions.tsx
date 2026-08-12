@@ -28,8 +28,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { MoreHorizontal, Send, DollarSign, XCircle, Trash2, Mail, Pencil, Plus, X } from "lucide-react";
-import { updateInvoiceStatus, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
+import { MoreHorizontal, Send, DollarSign, XCircle, Trash2, Mail, Pencil, Plus, X, Undo2 } from "lucide-react";
+import { updateInvoiceStatus, unsendInvoice, deleteInvoice, deleteInvoiceForce } from "@/actions/invoices";
 import { recordPayment, getOutstandingInvoices } from "@/actions/payments";
 import { sendInvoiceEmail } from "@/actions/email";
 import { formatCurrency } from "@/lib/currency";
@@ -257,6 +257,16 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               </DropdownMenuItem>
             </>
           )}
+          {invoice.status === "sent" && (
+            <DropdownMenuItem
+              onClick={() => handleAction(
+                () => unsendInvoice(invoice.id),
+                "Moved back to draft — edit and send again"
+              )}
+            >
+              <Undo2 size={14} className="mr-2" /> Move back to Draft
+            </DropdownMenuItem>
+          )}
           {(invoice.status === "sent" || invoice.status === "partial") && (
             <>
               <DropdownMenuItem onClick={openPaymentDialog}>
@@ -369,32 +379,48 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
               </div>
             </div>
 
-            {paymentMode === "crypto" && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="received-amount">Received Amount</Label>
-                  <Input
-                    id="received-amount"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={receivedAmount}
-                    onChange={(e) => setReceivedAmount(e.target.value)}
-                    placeholder="e.g. 41500"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="received-currency">Local Currency</Label>
-                  <Input
-                    id="received-currency"
-                    value={receivedCurrency}
-                    onChange={(e) => setReceivedCurrency(e.target.value.toUpperCase())}
-                    placeholder="INR"
-                    maxLength={3}
-                  />
-                </div>
+            {/* Shown for every payment mode, not just crypto. This is the figure the
+                dashboard's earnings total is built from — if it isn't captured here,
+                the payment shows up as "needs settlement" until someone fills it in. */}
+            <div className="space-y-1.5 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="received-amount">Amount credited to your bank</Label>
+                {invoice.currency !== "INR" && (
+                  <span className="text-[11px] text-muted-foreground">after conversion &amp; fees</span>
+                )}
               </div>
-            )}
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  id="received-amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={receivedAmount}
+                  onChange={(e) => setReceivedAmount(e.target.value)}
+                  placeholder={invoice.currency === "INR" ? String(computedTotal || "") : "e.g. 41500"}
+                />
+                <Input
+                  id="received-currency"
+                  value={receivedCurrency}
+                  onChange={(e) => setReceivedCurrency(e.target.value.toUpperCase())}
+                  placeholder="INR"
+                  maxLength={3}
+                  aria-label="Currency credited"
+                />
+              </div>
+              {invoice.currency === "INR" && computedTotal > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setReceivedAmount(String(computedTotal)); setReceivedCurrency("INR"); }}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Same as the {formatCurrency(computedTotal, invoice.currency)} received
+                </button>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Leave blank if you don&apos;t know yet — you can fill it in from the Payments page later.
+              </p>
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="payment-notes">Notes (optional)</Label>

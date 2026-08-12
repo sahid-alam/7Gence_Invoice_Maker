@@ -7,7 +7,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 import { formatCurrency } from "@/lib/currency";
-import type { CurrencyCode } from "@/types/app.types";
+import type { CurrencyCode, PaymentMethodSnapshot } from "@/types/app.types";
 
 const s = StyleSheet.create({
   page: { fontFamily: "Inter", backgroundColor: "#FFFFFF", paddingHorizontal: 52, paddingVertical: 48 },
@@ -61,7 +61,7 @@ interface InvoiceData {
   notes?: string | null;
   terms?: string | null;
   linked_invoice_number?: string | null;
-  payment_method_snapshot?: Record<string, string> | null;
+  payment_method_snapshot?: PaymentMethodSnapshot | null;
   business_profiles?: {
     display_name?: string;
     email?: string;
@@ -235,6 +235,14 @@ export function TemplateWhiteCaps({
                 {pm.ifsc_code && <Text style={s.paymentLine}>IFSC: {pm.ifsc_code}</Text>}
                 {pm.swift_code && <Text style={s.paymentLine}>SWIFT: {pm.swift_code}</Text>}
                 {pm.account_holder_name && <Text style={s.paymentLine}>Name: {pm.account_holder_name}</Text>}
+              </View>
+            )}
+            {pm.type === "wise" && (
+              <View>
+                {pm.account_holder_name && <Text style={s.paymentLine}>Beneficiary: {pm.account_holder_name}</Text>}
+                {pm.details?.map((f) => (
+                  <Text key={f.label} style={s.paymentLine}>{f.label}: {f.value}</Text>
+                ))}
               </View>
             )}
             {pm.type === "upi" && (

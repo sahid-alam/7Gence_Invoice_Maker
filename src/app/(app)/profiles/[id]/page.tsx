@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -19,16 +20,16 @@ const TEMPLATES = [
 
 export default async function ProfileDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const [profileRes, paymentMethodsRes] = await Promise.all([
-    supabase.from("business_profiles").select("*").eq("id", id).eq("owner_id", user!.id).single(),
+    supabase.from("business_profiles").select("*").eq("id", id).eq("org_id", member.orgId).single(),
     supabase
       .from("payment_methods")
       .select("*")
       .eq("business_profile_id", id)
-      .eq("owner_id", user!.id)
+      .eq("org_id", member.orgId)
       .order("is_default", { ascending: false }),
   ]);
 
@@ -40,7 +41,7 @@ export default async function ProfileDetailPage({ params }: { params: Promise<{ 
   const updateWithId = updateProfile.bind(null, id);
 
   return (
-    <div className="p-8 max-w-3xl space-y-6">
+    <div className="p-4 sm:p-8 max-w-3xl space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/profiles"><ArrowLeft size={16} /></Link>

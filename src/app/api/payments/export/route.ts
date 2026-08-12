@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { getMember } from "@/lib/auth";
 import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
+import { inSettlementRange } from "@/lib/earnings";
 
 function escapeCsv(value: string | number | null | undefined): string {
   const str = String(value ?? "");
@@ -13,8 +15,8 @@ function escapeCsv(value: string | number | null | undefined): string {
 
 export async function GET(req: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  const member = await getMember();
+  if (!member) return new Response("Unauthorized", { status: 401 });
 
   const url = new URL(req.url);
   const profile = url.searchParams.get("profile");
@@ -26,7 +28,7 @@ export async function GET(req: Request) {
     const profilesRes = await supabase
       .from("business_profiles")
       .select("country")
-      .eq("owner_id", user.id);
+      .eq("org_id", member.orgId);
     const profiles = profilesRes.data ?? [];
     const selectedCountry = profile
       ? (profiles.find((p) => p.country)?.country ?? null)
@@ -40,23 +42,22 @@ export async function GET(req: Request) {
   let q = supabase
     .from("payments")
     .select(`
-      id, payer_name, total_amount, currency, received_amount, received_currency,
+      id, payer_name, total_amount, currency, received_amount, received_currency, received_date,
       payment_date, payment_mode, reference, notes,
       business_profiles(display_name),
       payment_invoice_links(invoices(invoice_number))
     `)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .order("payment_date", { ascending: true });
 
   if (profile) q = q.eq("business_profile_id", profile);
 
   const { data: payments } = await q;
-  const rows = (payments ?? []).filter((p) =>
-    fyRange ? p.payment_date >= fyRange.start && p.payment_date <= fyRange.end : true
-  );
+  // Same basis as the dashboard: the year the money reached the bank.
+  const rows = inSettlementRange(payments ?? [], fyRange);
 
   const headers = [
-    "Date", "Payer", "Amount", "Currency", "Received Amount", "Received Currency",
+    "Payment Date", "Payer", "Amount", "Currency", "Received Amount", "Received Currency", "Date Credited",
     "Mode", "Reference", "Invoice(s)", "Notes", "Profile",
   ];
 
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
       escapeCsv(p.currency),
       escapeCsv(p.received_amount),
       escapeCsv(p.received_currency),
+      escapeCsv(p.received_date),
       escapeCsv(p.payment_mode?.replace("_", " ")),
       escapeCsv(p.reference),
       escapeCsv(invoiceNumbers),

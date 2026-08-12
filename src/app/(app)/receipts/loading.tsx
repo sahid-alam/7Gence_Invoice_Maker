@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ReceiptsLoading() {
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
+    <div className="p-4 sm:p-8 space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Skeleton className="h-7 w-24" />
@@ -16,7 +16,7 @@ export default function ReceiptsLoading() {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-border overflow-hidden">
+      <div className="rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

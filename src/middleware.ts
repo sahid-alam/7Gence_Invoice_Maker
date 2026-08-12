@@ -25,12 +25,20 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims(), not getUser(): this runs on EVERY request including every RSC
+  // navigation, and getUser() is a 200–560ms round trip to the Supabase auth
+  // server each time. getClaims() verifies the JWT locally against the cached
+  // JWKS. Still a real signature check — see src/lib/auth.ts.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   const { pathname } = request.nextUrl;
-  const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup");
+  // /reset-password is deliberately NOT here: it needs a session (the recovery
+  // link supplies one), and listing it would bounce the very people it exists for.
+  const isAuthRoute =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/forgot-password");
   const isApiRoute = pathname.startsWith("/api");
   const isCallbackRoute = pathname.startsWith("/auth/callback");
 

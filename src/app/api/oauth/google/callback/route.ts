@@ -2,12 +2,13 @@ import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import { encryptToken } from "@/lib/token-crypto";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const member = await requireMember();
+
 
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
@@ -67,14 +68,15 @@ export async function GET(req: NextRequest) {
     .from("oauth_tokens")
     .upsert(
       {
-        owner_id: user.id,
+        owner_id: member.id,
+        org_id: member.orgId,
         provider: "google_drive",
         access_token: encryptToken(tokens.access_token),
         refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
         expires_at: expiresAt,
         scope: tokens.scope,
       },
-      { onConflict: "owner_id,provider" }
+      { onConflict: "org_id,provider" }
     );
 
   if (upsertError) {
@@ -86,8 +88,8 @@ export async function GET(req: NextRequest) {
     await supabase
       .from("app_settings")
       .upsert(
-        { owner_id: user.id, gmail_user: userinfo.email, updated_at: new Date().toISOString() },
-        { onConflict: "owner_id" }
+        { owner_id: member.id, org_id: member.orgId, gmail_user: userinfo.email, updated_at: new Date().toISOString() },
+        { onConflict: "org_id" }
       );
   }
 

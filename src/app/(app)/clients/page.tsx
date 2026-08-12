@@ -1,21 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Plus, Users } from "lucide-react";
 import { DeleteClientButton } from "@/components/clients/delete-client-button";
 
 export default async function ClientsPage() {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: clients } = await supabase
     .from("clients")
     .select("id, name, company_name, email, city, country")
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("name");
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Clients</h2>
@@ -39,7 +40,7 @@ export default async function ClientsPage() {
           </Button>
         </div>
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>

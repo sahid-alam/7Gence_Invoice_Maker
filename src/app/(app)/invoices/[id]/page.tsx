@@ -7,12 +7,15 @@ import { formatCurrency } from "@/lib/currency";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { ExportToDriveButton } from "@/components/integrations/export-to-drive-button";
 import { ArrowLeft, Download } from "lucide-react";
+import type { PaymentMethodSnapshot } from "@/types/app.types";
+import { InvoiceActivity } from "@/components/invoices/invoice-activity";
+import type { InvoiceEvent } from "@/lib/invoice-events";
 
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const [invoiceRes, itemsRes, driveTokenRes, paymentLinksRes] = await Promise.all([
+  const [invoiceRes, itemsRes, driveTokenRes, paymentLinksRes, eventsRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, drive_url, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
@@ -33,6 +36,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       .select("id, amount_applied, payments(payment_date, payer_name, reference, payment_mode, notes, created_at)")
       .eq("invoice_id", id)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("invoice_events")
+      .select("id, type, detail, created_at")
+      .eq("invoice_id", id)
+      .order("created_at", { ascending: true }),
   ]);
 
   if (!invoiceRes.data) notFound();
@@ -41,6 +49,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const items = itemsRes.data ?? [];
   const driveConnected = !!driveTokenRes.data;
   const paymentLinks = paymentLinksRes.data ?? [];
+  // Activity is supplementary — if the table is not there yet the page still works,
+  // but say so rather than showing an empty trail that looks like "nothing happened".
+  const eventsError = eventsRes.error?.message ?? null;
+  const events = (eventsRes.data ?? []) as InvoiceEvent[];
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = (invoice.status === "sent" || invoice.status === "partial") && invoice.due_date < today;
 
@@ -52,30 +64,27 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     void: "bg-red-100 text-red-700",
   };
 
-  const pm = invoice.payment_method_snapshot as Record<string, string> | null;
+  const pm = invoice.payment_method_snapshot as PaymentMethodSnapshot | null;
 
   return (
-    <div className="p-8 max-w-4xl space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/invoices"><ArrowLeft size={16} /></Link>
+    <div className="p-4 sm:p-8 max-w-6xl space-y-6">
+      {/* Header. Stacks on mobile — the invoice number plus three controls cannot
+          share a row at 390px without the number wrapping mid-token. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" asChild>
+            <Link href="/invoices" aria-label="Back to invoices"><ArrowLeft size={16} /></Link>
           </Button>
-          <div>
-            <h2 className="text-xl font-bold font-mono">{invoice.invoice_number}</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[invoice.status]}`}>
-                {isOverdue ? "Overdue" : invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-              </span>
-            </div>
-          </div>
+          <h2 className="truncate font-mono text-lg font-bold sm:text-xl">{invoice.invoice_number}</h2>
+          <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[invoice.status]}`}>
+            {isOverdue ? "Overdue" : invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+          </span>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" asChild>
             <a href={`/api/invoices/${id}/pdf`} target="_blank" rel="noopener noreferrer">
               <Download size={14} className="mr-2" />
-              Download PDF
+              <span className="hidden sm:inline">Download&nbsp;</span>PDF
             </a>
           </Button>
           {driveConnected && <ExportToDriveButton invoiceId={id} driveUrl={invoice.drive_url} />}
@@ -85,6 +94,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
       <Separator />
 
+      {/* Paper on the left, activity in the rail beside it. The rail sits below the
+          invoice on narrow screens, where there is no room for a second column. */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+      <div className="min-w-0 space-y-6">
       {/* Invoice Preview — all colors hardcoded so it looks like paper in both themes */}
       {(() => {
         const isCream = invoice.template_id === "cream-serif";
@@ -248,6 +261,15 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   {pm.account_holder_name && <p className="text-gray-500">Name: {pm.account_holder_name}</p>}
                 </div>
               )}
+              {pm.type === "wise" && (
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">Bank Transfer (Wise)</p>
+                  {pm.account_holder_name && <p className="text-gray-500">Beneficiary: {pm.account_holder_name}</p>}
+                  {pm.details?.map((f) => (
+                    <p key={f.label} className="text-gray-500">{f.label}: {f.value}</p>
+                  ))}
+                </div>
+              )}
               {pm.type === "upi" && (
                 <div className="text-sm">
                   <p className="font-medium text-gray-900">UPI</p>
@@ -276,7 +298,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       {paymentLinks.length > 0 && (
         <div className="space-y-3">
           <h3 className="font-semibold">Payment History</h3>
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-lg border border-border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
@@ -307,6 +329,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
       )}
+      </div>
+
+        <InvoiceActivity events={events} error={eventsError} />
+      </div>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
+import { logInvoiceEvents } from "@/lib/invoice-events";
 
 export interface RecordPaymentInput {
   business_profile_id: string;
@@ -19,9 +20,8 @@ export interface RecordPaymentInput {
 }
 
 export async function recordPayment(input: RecordPaymentInput) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   if (input.splits.length === 0) throw new Error("At least one invoice split is required");
 
@@ -29,7 +29,7 @@ export async function recordPayment(input: RecordPaymentInput) {
     .from("invoices")
     .select("id, status, total, paid_amount, currency, client_name, client_company, client_address, payment_method_snapshot, template_id, business_profile_id")
     .in("id", input.splits.map((s) => s.invoice_id))
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   if (invError) throw new Error(invError.message);
   if (!invoices || invoices.length !== input.splits.length) throw new Error("One or more invoices not found");
@@ -40,6 +40,18 @@ export async function recordPayment(input: RecordPaymentInput) {
     }
     if (inv.currency !== input.currency) {
       throw new Error(`Currency mismatch: all invoices must use ${input.currency}`);
+    }
+  }
+
+  // Settlement is a pair or nothing. An amount without a currency would be
+  // excluded from every earnings total while still looking settled in the ledger.
+  const hasSettlement = input.received_amount != null || !!input.received_currency?.trim();
+  if (hasSettlement) {
+    if (input.received_amount == null || !Number.isFinite(input.received_amount) || input.received_amount <= 0) {
+      throw new Error("Amount credited to bank must be a positive number");
+    }
+    if (!input.received_currency?.trim()) {
+      throw new Error("Currency for the credited amount is required");
     }
   }
 
@@ -60,13 +72,14 @@ export async function recordPayment(input: RecordPaymentInput) {
   const { data: payment, error: payError } = await supabase
     .from("payments")
     .insert({
-      owner_id: user.id,
+      owner_id: member.id,
+      org_id: member.orgId,
       business_profile_id: input.business_profile_id,
       payer_name: input.payer_name,
       total_amount: input.total_amount,
       currency: input.currency,
-      received_amount: input.received_amount || null,
-      received_currency: input.received_currency || null,
+      received_amount: hasSettlement ? input.received_amount : null,
+      received_currency: hasSettlement ? input.received_currency!.trim().toUpperCase() : null,
       payment_date: input.payment_date,
       payment_mode: input.payment_mode,
       reference: input.reference || null,
@@ -77,14 +90,26 @@ export async function recordPayment(input: RecordPaymentInput) {
 
   if (payError) throw new Error(payError.message);
 
+  // org_id is required here even though this table has no owner_id. Its original
+  // policy derived access by joining to the parent payments/invoices rows, so there
+  // was never an ownership column on the insert — which is exactly why the move to
+  // org scoping missed it. The org policy's WITH CHECK rejects the row without it.
   const { error: linksError } = await supabase.from("payment_invoice_links").insert(
     input.splits.map((s) => ({
+      org_id: member.orgId,
       payment_id: payment.id,
       invoice_id: s.invoice_id,
       amount_applied: s.amount_applied,
     }))
   );
-  if (linksError) throw new Error(linksError.message);
+  if (linksError) {
+    // The payment row is already committed — supabase-js has no multi-statement
+    // transaction, so a failure here would leave a payment attached to no invoice.
+    // Those orphans still count toward earnings while reconciling against nothing,
+    // and each retry adds another. Undo our own insert before surfacing the error.
+    await supabase.from("payments").delete().eq("id", payment.id).eq("org_id", member.orgId);
+    throw new Error(linksError.message);
+  }
 
   for (const inv of invoices) {
     const { data: allLinks } = await supabase
@@ -109,14 +134,15 @@ export async function recordPayment(input: RecordPaymentInput) {
       .from("invoices")
       .update(updateData)
       .eq("id", inv.id)
-      .eq("owner_id", user.id);
+      .eq("org_id", member.orgId);
 
     if (isFullyPaid) {
       const { data: receiptNum } = await supabase.rpc("next_receipt_number", {
         profile_id: inv.business_profile_id,
       });
       await supabase.from("receipts").insert({
-        owner_id: user.id,
+        owner_id: member.id,
+        org_id: member.orgId,
         invoice_id: inv.id,
         business_profile_id: inv.business_profile_id,
         receipt_number: receiptNum,
@@ -134,6 +160,13 @@ export async function recordPayment(input: RecordPaymentInput) {
     revalidatePath(`/invoices/${inv.id}`);
   }
 
+  await logInvoiceEvents(input.splits.map((s) => s.invoice_id), "payment_recorded", {
+    total_amount: input.total_amount,
+    currency: input.currency,
+    payment_date: input.payment_date,
+    payment_mode: input.payment_mode,
+  });
+
   revalidatePath("/invoices");
   revalidatePath("/payments");
   revalidatePath("/dashboard");
@@ -141,15 +174,14 @@ export async function recordPayment(input: RecordPaymentInput) {
 }
 
 export async function deletePayment(id: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { data: payment } = await supabase
     .from("payments")
     .select("id")
     .eq("id", id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
   if (!payment) throw new Error("Payment not found");
 
@@ -160,15 +192,17 @@ export async function deletePayment(id: string) {
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
 
-  const { error } = await supabase.from("payments").delete().eq("id", id).eq("owner_id", user.id);
+  const { error } = await supabase.from("payments").delete().eq("id", id).eq("org_id", member.orgId);
   if (error) throw new Error(error.message);
+
+  await logInvoiceEvents(invoiceIds, "payment_deleted");
 
   for (const invoiceId of invoiceIds) {
     const { data: inv } = await supabase
       .from("invoices")
       .select("id, total, status, business_profile_id")
       .eq("id", invoiceId)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single();
     if (!inv) continue;
 
@@ -193,14 +227,14 @@ export async function deletePayment(id: string) {
         ...(!isNowFullyPaid && { paid_at: null }),
       })
       .eq("id", invoiceId)
-      .eq("owner_id", user.id);
+      .eq("org_id", member.orgId);
 
     if (wasFullyPaid && !isNowFullyPaid) {
       await supabase
         .from("receipts")
         .delete()
         .eq("invoice_id", invoiceId)
-        .eq("owner_id", user.id);
+        .eq("org_id", member.orgId);
     }
 
     revalidatePath(`/invoices/${invoiceId}`);
@@ -215,20 +249,56 @@ export async function deletePayment(id: string) {
 export async function updatePaymentSettlement(
   id: string,
   received_amount: number,
-  received_currency: string
+  received_currency: string,
+  /** Date the money reached the bank. Drives which financial year it books to. */
+  received_date?: string
 ) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  if (received_amount <= 0) throw new Error("Received amount must be positive");
-  if (!received_currency.trim()) throw new Error("Received currency is required");
+  if (!Number.isFinite(received_amount) || received_amount <= 0) {
+    throw new Error("Amount credited to bank must be a positive number");
+  }
+  if (!received_currency.trim()) throw new Error("Currency for the credited amount is required");
+
+  if (received_date && !/^\d{4}-\d{2}-\d{2}$/.test(received_date)) {
+    throw new Error("Date credited must be a valid date");
+  }
 
   const { error } = await supabase
     .from("payments")
-    .update({ received_amount, received_currency: received_currency.trim().toUpperCase() })
+    .update({
+      received_amount,
+      received_currency: received_currency.trim().toUpperCase(),
+      received_date: received_date || null,
+    })
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/payments");
+  revalidatePath("/dashboard");
+}
+
+/**
+ * Return a payment to "not settled".
+ *
+ * Needed because a settlement entered in error cannot otherwise be undone —
+ * updatePaymentSettlement requires a positive amount, so it can only overwrite a
+ * wrong number with another number, never remove it. Clearing both columns puts
+ * the payment back in the pending bucket so the earnings total stops counting it.
+ */
+export async function clearPaymentSettlement(id: string) {
+  const member = await requireMember();
+  const supabase = await createClient();
+
+  // Both to NULL together — the constraint in migration 0013 allows null/null.
+  const { error } = await supabase
+    .from("payments")
+    .update({ received_amount: null, received_currency: null, received_date: null })
+    .eq("id", id)
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
 
@@ -237,14 +307,13 @@ export async function updatePaymentSettlement(
 }
 
 export async function getOutstandingInvoices(profileId: string, currency: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
 
   const { data } = await supabase
     .from("invoices")
     .select("id, invoice_number, client_name, total, paid_amount, currency")
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .eq("business_profile_id", profileId)
     .eq("currency", currency)
     .in("status", ["sent", "partial"])

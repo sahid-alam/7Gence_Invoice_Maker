@@ -9,7 +9,9 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow",
+      // rounded-2xl sits a step below the 24px shell panel, so nested radii decrease.
+      // shadow-card is the ramp's first step — it reads on both themes, unlike `shadow`.
+      "rounded-2xl border bg-card text-card-foreground shadow-card",
       className
     )}
     {...props}

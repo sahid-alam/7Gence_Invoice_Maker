@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/currency";
 import { ExportReceiptToDriveButton } from "@/components/integrations/export-receipt-to-drive-button";
 import { DeleteReceiptButton } from "@/components/receipts/delete-receipt-button";
 import { ArrowLeft, Download } from "lucide-react";
+import type { PaymentMethodSnapshot } from "@/types/app.types";
 
 export default async function ReceiptDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -29,12 +30,12 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
   const receipt = receiptRes.data;
   const driveConnected = !!driveTokenRes.data;
 
-  const pm = receipt.payment_method_snapshot as Record<string, string> | null;
+  const pm = receipt.payment_method_snapshot as PaymentMethodSnapshot | null;
   const profile = receipt.business_profiles as Record<string, string> | null;
   const linkedInvoiceNumber = (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null;
 
   return (
-    <div className="p-8 max-w-4xl space-y-6">
+    <div className="p-4 sm:p-8 max-w-4xl space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -144,6 +145,15 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
                   <p className="text-gray-500">Account: {pm.account_number}</p>
                   {pm.ifsc_code && <p className="text-gray-500">IFSC: {pm.ifsc_code}</p>}
                   {pm.account_holder_name && <p className="text-gray-500">Name: {pm.account_holder_name}</p>}
+                </div>
+              )}
+              {pm.type === "wise" && (
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">Bank Transfer (Wise)</p>
+                  {pm.account_holder_name && <p className="text-gray-500">Beneficiary: {pm.account_holder_name}</p>}
+                  {pm.details?.map((f) => (
+                    <p key={f.label} className="text-gray-500">{f.label}: {f.value}</p>
+                  ))}
                 </div>
               )}
               {pm.type === "upi" && (

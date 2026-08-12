@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ClientsLoading() {
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
+    <div className="p-4 sm:p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="space-y-2">
           <Skeleton className="h-7 w-20" />
@@ -11,7 +11,7 @@ export default function ClientsLoading() {
         <Skeleton className="h-9 w-28 rounded-lg" />
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden">
+      <div className="rounded-lg border border-border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

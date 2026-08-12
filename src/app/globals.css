@@ -25,6 +25,20 @@
     --ring: 222 20% 12%;
     --radius: 0.625rem;
     --sidebar: 220 14% 98%;
+
+    /* Panel radius for the shell's floating surfaces. Deliberately NOT --radius:
+       that one feeds rounded-lg across every shadcn control, and inputs/badges
+       must stay tight. Nested radii step down: 24px shell → 10px card inside. */
+    --radius-panel: 1.5rem;
+
+    /* Exponential ease-out: fast departure, settled arrival. One curve everywhere. */
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Elevation ramp. Each step is offset + blur — a light surface needs far
+       less ink than a dark one, so the two themes carry different values. */
+    --shadow-card: 0 1px 2px hsl(222 15% 10% / 0.05), 0 1px 3px hsl(222 15% 10% / 0.04);
+    --shadow-panel: 0 1px 2px hsl(222 15% 10% / 0.04), 0 8px 24px -12px hsl(222 15% 10% / 0.12);
+    --shadow-pop: 0 2px 6px hsl(222 15% 10% / 0.06), 0 16px 36px -16px hsl(222 15% 10% / 0.2);
   }
 
   .dark {
@@ -47,7 +61,13 @@
     --border: 222 14% 18%;
     --input: 222 14% 18%;
     --ring: 210 20% 70%;
-    --sidebar: 222 18% 7%;
+    /* Raised above --background (9%), not sunk below it. The sidebar is now a
+       floating panel on the page ground, so a darker tone read as a hole. */
+    --sidebar: 222 16% 12%;
+
+    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.4), 0 1px 3px hsl(0 0% 0% / 0.25);
+    --shadow-panel: 0 1px 2px hsl(0 0% 0% / 0.45), 0 10px 30px -12px hsl(0 0% 0% / 0.7);
+    --shadow-pop: 0 2px 6px hsl(0 0% 0% / 0.5), 0 20px 48px -16px hsl(0 0% 0% / 0.75);
   }
 }
 
@@ -58,20 +78,21 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* Smooth color transitions on theme change */
-  *,
-  *::before,
-  *::after {
-    transition-property: background-color, border-color, color, fill, stroke;
-    transition-duration: 150ms;
-    transition-timing-function: ease;
-  }
-  /* But don't animate transforms or opacity globally */
+  /* Colour transitions live on the things that actually change colour under the
+     pointer. This used to be `*, *::before, *::after`, which put a live
+     transition on every node in the tree — every hover forced style recalc far
+     beyond the hovered element, and the theme toggle smeared across the page
+     instead of switching. Scoping it is both faster and sharper. */
   button,
   a,
-  [role="button"] {
-    transition-property: background-color, border-color, color, opacity, transform, box-shadow;
+  [role="button"],
+  [role="switch"],
+  input,
+  textarea,
+  select {
+    transition-property: background-color, border-color, color, opacity, box-shadow;
     transition-duration: 150ms;
+    transition-timing-function: var(--ease-out);
   }
 }
 

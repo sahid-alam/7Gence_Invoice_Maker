@@ -53,6 +53,16 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Shell surfaces only (sidebar, main panel). Controls keep the tight scale above.
+        panel: "var(--radius-panel)",
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        panel: "var(--shadow-panel)",
+        pop: "var(--shadow-pop)",
+      },
+      transitionTimingFunction: {
+        "ease-out-expo": "var(--ease-out)",
       },
       keyframes: {
         "accordion-down": {

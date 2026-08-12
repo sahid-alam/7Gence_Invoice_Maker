@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
+import { getMember } from "@/lib/auth";
 import { renderToStream } from "@react-pdf/renderer";
 import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
 import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
+import type { PaymentMethodSnapshot } from "@/types/app.types";
 import { registerFonts } from "@/lib/pdf/fonts";
 import { notFound } from "next/navigation";
 import React from "react";
@@ -13,14 +15,14 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  const member = await getMember();
+  if (!member) return new Response("Unauthorized", { status: 401 });
 
   const { data: receipt } = await supabase
     .from("receipts")
     .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url), invoices(invoice_number)`)
     .eq("id", id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
 
   if (!receipt) return notFound();
@@ -47,7 +49,7 @@ export async function GET(
     sender_gstin: null,
     notes: receipt.notes,
     linked_invoice_number: (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null,
-    payment_method_snapshot: receipt.payment_method_snapshot as Record<string, string> | null,
+    payment_method_snapshot: receipt.payment_method_snapshot as PaymentMethodSnapshot | null,
     business_profiles: receipt.business_profiles,
     items: [],
   };

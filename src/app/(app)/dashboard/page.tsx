@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { formatCurrency } from "@/lib/currency";
 import { ProfileFilter } from "@/components/filters/profile-filter";
 import { FYFilter } from "@/components/filters/fy-filter";
 import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
+import { computeEarnings, groupByCurrency, inSettlementRange, HOME_CURRENCY } from "@/lib/earnings";
 import type { CurrencyCode } from "@/types/app.types";
 
 export default async function DashboardPage({
@@ -15,28 +17,28 @@ export default async function DashboardPage({
   searchParams: Promise<{ profile?: string; fy?: string }>;
 }) {
   const { profile, fy } = await searchParams;
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
   const today = new Date().toISOString().split("T")[0];
 
   let statsQuery = supabase
     .from("invoices")
     .select("status, total, currency, due_date, issue_date, paid_amount")
-    .eq("owner_id", user!.id);
+    .eq("org_id", member.orgId);
   let recentInvoicesQuery = supabase
     .from("invoices")
     .select("id, invoice_number, client_name, total, currency, status, issue_date")
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("created_at", { ascending: false })
     .limit(5);
   let paymentsQuery = supabase
     .from("payments")
-    .select("total_amount, currency, received_amount, received_currency, payment_date")
-    .eq("owner_id", user!.id);
+    .select("total_amount, currency, received_amount, received_currency, payment_date, received_date")
+    .eq("org_id", member.orgId);
   let recentPaymentsQuery = supabase
     .from("payments")
     .select("id, payer_name, total_amount, currency, received_amount, received_currency, payment_date, payment_mode")
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -54,11 +56,16 @@ export default async function DashboardPage({
       supabase
         .from("business_profiles")
         .select("id, display_name, country")
-        .eq("owner_id", user!.id)
+        .eq("org_id", member.orgId)
         .order("display_name"),
       paymentsQuery,
       recentPaymentsQuery,
     ]);
+
+  // A failed query returns data: null, which would roll up to a confident ₹0.00 —
+  // the exact silently-wrong money figure this whole feature exists to prevent.
+  // Surface the failure instead of totalling nothing.
+  const paymentsError = paymentsStatsRes.error?.message ?? null;
 
   const invoices = invoiceStatsRes.data ?? [];
   const profiles = profilesRes.data ?? [];
@@ -79,11 +86,8 @@ export default async function DashboardPage({
     ? invoices.filter((i) => i.issue_date >= fyRange.start && i.issue_date <= fyRange.end)
     : invoices;
 
-  const filteredPayments = fyRange
-    ? allPaymentStats.filter(
-        (p) => p.payment_date >= fyRange.start && p.payment_date <= fyRange.end
-      )
-    : allPaymentStats;
+  // Earnings are filtered by when the money reached the bank (see lib/earnings).
+  const filteredPayments = inSettlementRange(allPaymentStats, fyRange);
 
   // Status counts
   const draft = filteredInvoices.filter((i) => i.status === "draft").length;
@@ -97,67 +101,30 @@ export default async function DashboardPage({
   ).length;
   const paid = filteredInvoices.filter((i) => i.status === "paid").length;
 
-  // Financial stats — invoice currency (for Total Billed + Outstanding)
-  const activeCurrencies = Array.from(
-    new Set(filteredInvoices.filter((i) => i.status !== "void").map((i) => i.currency))
+  // Billed and Outstanding stay in the currency they were invoiced in. They are
+  // receivables, not money — no conversion has happened, so an INR figure here
+  // would be an estimate sitting next to exact ones. Grouping beats the old
+  // behaviour of showing nothing at all whenever more than one currency was in play.
+  const billedByCurrency = groupByCurrency(
+    filteredInvoices
+      .filter((i) => i.status !== "draft" && i.status !== "void")
+      .map((i) => ({ amount: i.total, currency: i.currency }))
   );
-  const primaryCurrency: CurrencyCode | null =
-    activeCurrencies.length === 1 ? (activeCurrencies[0] as CurrencyCode) : null;
 
-  const totalBilled =
-    primaryCurrency != null
-      ? filteredInvoices
-          .filter((i) => i.status !== "draft" && i.status !== "void")
-          .reduce((s, i) => s + i.total, 0)
-      : null;
+  const outstandingByCurrency = groupByCurrency(
+    filteredInvoices
+      .filter((i) => i.status === "sent" || i.status === "partial")
+      .map((i) => ({ amount: i.total - (i.paid_amount ?? 0), currency: i.currency }))
+  ).filter((r) => r.amount > 0);
 
-  const outstanding =
-    primaryCurrency != null
-      ? filteredInvoices
-          .filter((i) => i.status === "sent" || i.status === "partial")
-          .reduce((s, i) => s + (i.total - (i.paid_amount ?? 0)), 0)
-      : null;
-
-  // Total Received — prefer received_amount (actual local currency) over invoice currency.
-  // If all payments with a conversion share one received_currency, show that.
-  // Falls back to invoice currency total when no conversions are recorded.
-  const paymentsWithConversion = filteredPayments.filter(
-    (p) => p.received_amount != null && p.received_currency != null
-  );
-  const receivedCurrencies = Array.from(
-    new Set(paymentsWithConversion.map((p) => p.received_currency))
-  );
-  const allHaveSameReceivedCurrency =
-    receivedCurrencies.length === 1 &&
-    paymentsWithConversion.length === filteredPayments.length;
-
-  let totalReceived: number | null = null;
-  let totalReceivedCurrency: CurrencyCode | null = null;
-  let totalReceivedInvoiceCurrency: number | null = null;
-
-  if (allHaveSameReceivedCurrency) {
-    // All payments converted to the same local currency — show that as primary
-    totalReceived = paymentsWithConversion.reduce(
-      (s, p) => s + Number(p.received_amount),
-      0
-    );
-    totalReceivedCurrency = receivedCurrencies[0] as CurrencyCode;
-    // Also compute invoice-currency total as secondary label
-    if (primaryCurrency != null) {
-      totalReceivedInvoiceCurrency = filteredPayments
-        .filter((p) => p.currency === primaryCurrency)
-        .reduce((s, p) => s + Number(p.total_amount), 0);
-    }
-  } else if (primaryCurrency != null) {
-    // Mixed or no conversions — fall back to invoice currency
-    totalReceived = filteredPayments
-      .filter((p) => p.currency === primaryCurrency)
-      .reduce((s, p) => s + Number(p.total_amount), 0);
-    totalReceivedCurrency = primaryCurrency;
-  }
+  // Earnings — exact INR that reached the bank, plus everything the figure is
+  // missing. The old logic returned null whenever payments spanned more than one
+  // currency or any settlement was absent, so the number silently disappeared in
+  // exactly the case it mattered most. See src/lib/earnings.ts.
+  const earnings = computeEarnings(filteredPayments);
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-4 sm:p-8 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -214,13 +181,16 @@ export default async function DashboardPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {totalBilled != null ? (
-              <p className="text-3xl font-bold">{formatCurrency(totalBilled, primaryCurrency!)}</p>
+            {billedByCurrency.length === 0 ? (
+              <p className="text-3xl font-bold text-muted-foreground">—</p>
             ) : (
-              <p className="text-3xl font-bold">
-                {filteredInvoices.filter((i) => i.status !== "draft" && i.status !== "void").length}
-                <span className="text-lg font-normal text-muted-foreground ml-1">inv.</span>
-              </p>
+              <div className="space-y-0.5">
+                {billedByCurrency.map((r, i) => (
+                  <p key={r.currency} className={i === 0 ? "text-3xl font-bold" : "text-lg font-semibold text-muted-foreground"}>
+                    {formatCurrency(r.amount, r.currency)}
+                  </p>
+                ))}
+              </div>
             )}
             <p className="text-xs text-muted-foreground mt-1">Sent &amp; paid invoices</p>
           </CardContent>
@@ -229,31 +199,50 @@ export default async function DashboardPage({
         <Card className="border-green-200/60 dark:border-green-900/40">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
-              <Banknote size={14} /> Total Received
+              <Banknote size={14} /> Earned ({HOME_CURRENCY})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {totalReceived != null && totalReceivedCurrency != null ? (
+            {paymentsError ? (
               <>
-                <p className="text-3xl font-bold text-green-600">
-                  {formatCurrency(totalReceived, totalReceivedCurrency)}
+                <p className="text-3xl font-bold text-muted-foreground">—</p>
+                <p className="mt-1 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                  Couldn&apos;t read the payments ledger, so no total is shown rather than a
+                  wrong one. {paymentsError}
                 </p>
-                {totalReceivedInvoiceCurrency != null && primaryCurrency != null && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formatCurrency(totalReceivedInvoiceCurrency, primaryCurrency)} invoiced
-                  </p>
-                )}
-                {!(totalReceivedInvoiceCurrency != null) && (
-                  <p className="text-xs text-muted-foreground mt-1">From payments ledger</p>
-                )}
               </>
             ) : (
               <>
-                <p className="text-3xl font-bold text-green-600">
-                  {filteredPayments.length}
-                  <span className="text-lg font-normal text-muted-foreground ml-1">pmts.</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">From payments ledger</p>
+            <p className="text-3xl font-bold text-green-600">
+              {formatCurrency(earnings.earnedHome, HOME_CURRENCY)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Actually credited to your bank
+              {earnings.settledCount > 0 && ` · ${earnings.settledCount} payment${earnings.settledCount === 1 ? "" : "s"}`}
+            </p>
+
+            {/* The figure must never look complete when it isn't. */}
+            {earnings.pendingCount > 0 && (
+              <Link
+                href="/payments"
+                className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70"
+              >
+                <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                <span>
+                  <span className="font-medium">
+                    {earnings.pendingCount} payment{earnings.pendingCount === 1 ? "" : "s"} not settled
+                  </span>{" "}
+                  ({earnings.pending.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}) — not
+                  in this total. Add the bank amount →
+                </span>
+              </Link>
+            )}
+            {earnings.settledOther.length > 0 && (
+              <p className="mt-2 rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+                Also held outside {HOME_CURRENCY}:{" "}
+                {earnings.settledOther.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}
+              </p>
+            )}
               </>
             )}
           </CardContent>
@@ -266,17 +255,22 @@ export default async function DashboardPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {outstanding != null ? (
+            {outstandingByCurrency.length === 0 ? (
               <p className="text-3xl font-bold text-amber-600">
-                {formatCurrency(outstanding, primaryCurrency!)}
+                {formatCurrency(0, HOME_CURRENCY)}
               </p>
             ) : (
-              <p className="text-3xl font-bold text-amber-600">
-                {sentCount + partial}
-                <span className="text-lg font-normal text-muted-foreground ml-1">inv.</span>
-              </p>
+              <div className="space-y-0.5">
+                {outstandingByCurrency.map((r, i) => (
+                  <p key={r.currency} className={i === 0 ? "text-3xl font-bold text-amber-600" : "text-lg font-semibold text-amber-600/70"}>
+                    {formatCurrency(r.amount, r.currency)}
+                  </p>
+                ))}
+              </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">Remaining on sent invoices</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Still owed on sent invoices · not converted, no rate applied yet
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -360,7 +354,7 @@ export default async function DashboardPage({
             )}
           </div>
         ) : (
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-lg border border-border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
@@ -407,7 +401,7 @@ export default async function DashboardPage({
               <Link href="/payments">View all →</Link>
             </Button>
           </div>
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-lg border border-border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>

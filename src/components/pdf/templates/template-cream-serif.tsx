@@ -6,7 +6,7 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import { formatCurrency } from "@/lib/currency";
-import type { CurrencyCode } from "@/types/app.types";
+import type { CurrencyCode, PaymentMethodSnapshot } from "@/types/app.types";
 
 const s = StyleSheet.create({
   page: { fontFamily: "Inter", backgroundColor: "#F5F0E8", paddingHorizontal: 52, paddingVertical: 48 },
@@ -62,7 +62,7 @@ interface InvoiceData {
   sender_gstin?: string | null;
   notes?: string | null;
   linked_invoice_number?: string | null;
-  payment_method_snapshot?: Record<string, string> | null;
+  payment_method_snapshot?: PaymentMethodSnapshot | null;
   business_profiles?: {
     display_name?: string;
     email?: string;
@@ -227,6 +227,8 @@ export function TemplateCreamSerif({
                     ? "Bank Details"
                     : pm.type === "crypto_wallet"
                     ? "Crypto Wallet"
+                    : pm.type === "wise"
+                    ? "Bank Details (Wise)"
                     : "UPI"}
                 </Text>
                 {pm.type === "bank_transfer" && (
@@ -243,6 +245,14 @@ export function TemplateCreamSerif({
                     <Text style={s.paymentLine}>{pm.coin} ({pm.network})</Text>
                     <Text style={s.walletAddress}>{pm.wallet_address}</Text>
                     {pm.account_name && <Text style={s.paymentLine}>Account: {pm.account_name}</Text>}
+                  </>
+                )}
+                {pm.type === "wise" && (
+                  <>
+                    {pm.account_holder_name && <Text style={s.paymentLine}>Beneficiary : {pm.account_holder_name}</Text>}
+                    {pm.details?.map((f) => (
+                      <Text key={f.label} style={s.paymentLine}>{f.label} : {f.value}</Text>
+                    ))}
                   </>
                 )}
                 {pm.type === "upi" && <Text style={s.paymentLine}>UPI: {pm.upi_id}</Text>}

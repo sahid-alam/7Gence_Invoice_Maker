@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getMember } from "@/lib/auth";
 import { renderToStream } from "@react-pdf/renderer";
 import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
 import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
@@ -13,21 +14,21 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  const member = await getMember();
+  if (!member) return new Response("Unauthorized", { status: 401 });
 
   const [invoiceRes, itemsRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url)`)
       .eq("id", id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single(),
     supabase
       .from("invoice_items")
       .select("description, quantity, unit_price")
       .eq("invoice_id", id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .order("sort_order"),
   ]);
 

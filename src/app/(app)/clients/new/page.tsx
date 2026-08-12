@@ -9,7 +9,7 @@ import Link from "next/link";
 
 export default function NewClientPage() {
   return (
-    <div className="p-8 max-w-2xl space-y-6">
+    <div className="p-4 sm:p-8 max-w-2xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">New Client</h2>
         <p className="text-muted-foreground">Save a client to reuse in invoices</p>

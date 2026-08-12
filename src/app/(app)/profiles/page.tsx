@@ -1,22 +1,23 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Building2, Mail, Phone } from "lucide-react";
 
 export default async function ProfilesPage() {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: profiles } = await supabase
     .from("business_profiles")
     .select("id, display_name, email, phone, city, country, gstin, invoice_prefix, is_default")
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("is_default", { ascending: false })
     .order("display_name");
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Business Profiles</h2>

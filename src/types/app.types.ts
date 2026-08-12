@@ -1,6 +1,6 @@
-export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
+export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "void";
 export type TaxType = "none" | "cgst_sgst" | "igst" | "custom";
-export type PaymentMethodType = "bank_transfer" | "crypto_wallet" | "upi";
+export type PaymentMethodType = "bank_transfer" | "crypto_wallet" | "upi" | "wise";
 export type TemplateId = "white-caps" | "cream-serif";
 
 export type CurrencyCode = "INR" | "USD" | "EUR" | "GBP" | "AED" | "USDT";
@@ -67,6 +67,8 @@ export interface InvoiceItem {
 export interface PaymentMethodSnapshot {
   type: PaymentMethodType;
   label: string;
+  /** Wise: ordered label/value pairs as Wise presents them for that currency. */
+  details?: { label: string; value: string }[];
   account_holder_name?: string;
   bank_name?: string;
   account_number?: string;

@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 
 export async function createProfile(formData: FormData) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const data = {
-    owner_id: user.id,
+    owner_id: member.id,
+    org_id: member.orgId,
     display_name: formData.get("display_name") as string,
     legal_name: formData.get("legal_name") as string || null,
     email: formData.get("email") as string || null,
@@ -41,9 +42,8 @@ export async function createProfile(formData: FormData) {
 }
 
 export async function updateProfile(id: string, formData: FormData) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const data = {
     display_name: formData.get("display_name") as string,
@@ -68,7 +68,7 @@ export async function updateProfile(id: string, formData: FormData) {
     .from("business_profiles")
     .update(data)
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
 
@@ -78,15 +78,14 @@ export async function updateProfile(id: string, formData: FormData) {
 }
 
 export async function deleteProfile(id: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { error } = await supabase
     .from("business_profiles")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
 

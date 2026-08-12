@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Plus, Trash2, CreditCard, Bitcoin, Smartphone } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Trash2, CreditCard, Bitcoin, Smartphone, Globe } from "lucide-react";
 import { createPaymentMethod, deletePaymentMethod } from "@/actions/payment-methods";
+import { parseWiseDetails, type ParsedWise } from "@/lib/wise";
 
 interface PaymentMethod {
   id: string;
@@ -22,12 +24,14 @@ interface PaymentMethod {
   upi_id?: string | null;
   account_name?: string | null;
   account_holder_name?: string | null;
+  details?: { label: string; value: string }[] | null;
 }
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   bank_transfer: <CreditCard size={14} />,
   crypto_wallet: <Bitcoin size={14} />,
   upi: <Smartphone size={14} />,
+  wise: <Globe size={14} />,
 };
 
 export function PaymentMethodsSection({
@@ -41,6 +45,23 @@ export function PaymentMethodsSection({
   const [showForm, setShowForm] = useState(false);
   const [selectedType, setSelectedType] = useState("bank_transfer");
   const [loading, setLoading] = useState(false);
+  const [wise, setWise] = useState<ParsedWise | null>(null);
+  const [wiseError, setWiseError] = useState<string | null>(null);
+
+  function handleWisePaste(text: string) {
+    if (!text.trim()) {
+      setWise(null);
+      setWiseError(null);
+      return;
+    }
+    try {
+      setWise(parseWiseDetails(text));
+      setWiseError(null);
+    } catch (err) {
+      setWise(null);
+      setWiseError(err instanceof Error ? err.message : "Couldn't read those details");
+    }
+  }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -113,6 +134,14 @@ export function PaymentMethodsSection({
                 {pm.account_name && <p>Account: {pm.account_name}</p>}
               </>
             )}
+            {pm.type === "wise" && (
+              <>
+                {pm.account_holder_name && <p>Beneficiary: {pm.account_holder_name}</p>}
+                {pm.details?.map((f) => (
+                  <p key={f.label}>{f.label}: <span className="font-mono">{f.value}</span></p>
+                ))}
+              </>
+            )}
             {pm.type === "upi" && pm.upi_id && <p>UPI: {pm.upi_id}</p>}
           </CardContent>
         </Card>
@@ -128,6 +157,7 @@ export function PaymentMethodsSection({
                 <div className="flex gap-2">
                   {[
                     { value: "bank_transfer", label: "Bank Transfer" },
+                    { value: "wise", label: "Wise" },
                     { value: "crypto_wallet", label: "Crypto Wallet" },
                     { value: "upi", label: "UPI" },
                   ].map((t) => (
@@ -150,8 +180,60 @@ export function PaymentMethodsSection({
 
               <div className="space-y-2">
                 <Label htmlFor="label">Label (display name)</Label>
-                <Input id="label" name="label" placeholder={selectedType === "crypto_wallet" ? "Binance USDT" : selectedType === "bank_transfer" ? "HDFC Savings" : "Personal UPI"} required />
+                <Input
+                  id="label"
+                  name="label"
+                  // Re-mounts to pick up the currency as soon as a Wise block is pasted.
+                  key={wise?.currency ?? "label"}
+                  defaultValue={wise?.currency ? `Wise ${wise.currency}` : ""}
+                  placeholder={selectedType === "crypto_wallet" ? "Binance USDT" : selectedType === "bank_transfer" ? "HDFC Savings" : selectedType === "wise" ? "Wise USD" : "Personal UPI"}
+                  required
+                />
               </div>
+
+              {selectedType === "wise" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="wise_paste">Paste your Wise account details</Label>
+                    <Textarea
+                      id="wise_paste"
+                      name="wise_paste"
+                      rows={8}
+                      className="font-mono text-xs"
+                      placeholder={"Here are the USD account details for … on Wise.\n\nName: …\nRouting number (for wire and ACH): …\nAccount number: …\nSwift/BIC: …"}
+                      onChange={(e) => handleWisePaste(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Copy the whole block from Wise — one currency at a time. The &ldquo;Use when sending money from…&rdquo; hints are stripped out.
+                    </p>
+                  </div>
+
+                  {wiseError && <p className="text-xs text-destructive">{wiseError}</p>}
+
+                  {wise && (
+                    <div className="rounded border bg-muted/40 p-3 space-y-1">
+                      <p className="text-xs font-medium">
+                        This is what appears on the invoice{wise.currency ? ` (${wise.currency})` : ""}:
+                      </p>
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Beneficiary: </span>
+                        {wise.name ?? <span className="text-destructive">missing — no &ldquo;Name:&rdquo; line found</span>}
+                      </p>
+                      {wise.fields.map((f) => (
+                        <p key={f.label} className="text-xs">
+                          <span className="text-muted-foreground">{f.label}: </span>
+                          <span className="font-mono">{f.value}</span>
+                        </p>
+                      ))}
+                      {wise.name && (
+                        <p className="text-xs text-muted-foreground pt-1">
+                          Beneficiary must match your GST-registered legal name, or the wire and FIRC won&apos;t match.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {selectedType === "bank_transfer" && (
                 <div className="grid grid-cols-2 gap-3">

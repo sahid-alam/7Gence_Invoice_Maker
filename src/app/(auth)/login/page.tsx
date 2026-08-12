@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
@@ -176,9 +177,17 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password" style={{ color: "rgba(255,255,255,0.55)" }} className="text-xs">
-                Password
-              </Label>
+              <div className="flex items-baseline justify-between">
+                <Label htmlFor="password" style={{ color: "rgba(255,255,255,0.55)" }} className="text-xs">
+                  Password
+                </Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-white/45 transition-colors hover:text-white/80"
+                >
+                  Forgot?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"

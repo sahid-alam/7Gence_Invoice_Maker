@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 import { calculateTax } from "@/lib/tax-calculator";
 import type { TaxType } from "@/types/app.types";
 
@@ -34,16 +36,15 @@ export interface CreateInvoiceInput {
 }
 
 export async function createInvoice(input: CreateInvoiceInput) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   // Get profile snapshot for GST fields
   const { data: profile } = await supabase
     .from("business_profiles")
     .select("gstin, state, default_template_id")
     .eq("id", input.business_profile_id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
 
   // Get payment method snapshot
@@ -53,7 +54,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
       .from("payment_methods")
       .select("*")
       .eq("id", input.payment_method_id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single();
     if (pm) paymentSnapshot = pm;
   }
@@ -84,7 +85,8 @@ export async function createInvoice(input: CreateInvoiceInput) {
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
-      owner_id: user.id,
+      owner_id: member.id,
+      org_id: member.orgId,
       business_profile_id: input.business_profile_id,
       client_id: input.client_id || null,
       client_name: input.client_name,
@@ -125,7 +127,8 @@ export async function createInvoice(input: CreateInvoiceInput) {
     const { error: itemsError } = await supabase.from("invoice_items").insert(
       input.items.map((item, idx) => ({
         invoice_id: invoice.id,
-        owner_id: user.id,
+        owner_id: member.id,
+      org_id: member.orgId,
         sort_order: idx,
         description: item.description,
         quantity: item.quantity,
@@ -134,6 +137,8 @@ export async function createInvoice(input: CreateInvoiceInput) {
     );
     if (itemsError) throw new Error(itemsError.message);
   }
+
+  await logInvoiceEvent(invoice.id, "created", { invoice_number: numberResult, total: tax.total, currency: input.currency });
 
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
@@ -144,17 +149,18 @@ export async function updateInvoiceStatus(
   id: string,
   status: "sent" | "void",
 ) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { error } = await supabase
     .from("invoices")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
+
+  await logInvoiceEvent(id, status === "sent" ? "sent" : "voided");
 
   revalidatePath(`/invoices/${id}`);
   revalidatePath("/invoices");
@@ -162,16 +168,88 @@ export async function updateInvoiceStatus(
 }
 
 
-export async function updateInvoice(id: string, input: CreateInvoiceInput) {
+/**
+ * Retract a sent invoice back to draft so it can be corrected and re-sent.
+ *
+ * Preferred over editing in place: "sent" should mean the client holds exactly
+ * this document, and preferred over voiding, which permanently burns an invoice
+ * number that GST requires to stay sequential.
+ *
+ * Refused once any payment is applied. At that point the invoice is reconciled
+ * against a bank credit (and for exports, an FIRC), so the correct instrument is
+ * a credit note, not a retroactive edit.
+ */
+export async function unsendInvoice(id: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id, status, invoice_number")
+    .eq("id", id)
+    .eq("org_id", member.orgId)
+    .single();
+  if (!invoice) throw new Error("Invoice not found");
+
+  if (invoice.status !== "sent") {
+    throw new Error(
+      invoice.status === "paid" || invoice.status === "partial"
+        ? "This invoice has payments against it — issue a credit note instead of editing it"
+        : `Only a sent invoice can be moved back to draft (this one is ${invoice.status})`
+    );
+  }
+
+  // Belt and braces: status could be 'sent' while links exist if paid_amount ever
+  // drifts. The money check is the one that actually matters, so check it directly.
+  const { count } = await supabase
+    .from("payment_invoice_links")
+    .select("id", { count: "exact", head: true })
+    .eq("invoice_id", id);
+  if ((count ?? 0) > 0) {
+    throw new Error("This invoice has payments against it — issue a credit note instead");
+  }
+
+  const { error } = await supabase
+    .from("invoices")
+    .update({ status: "draft", updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("org_id", member.orgId);
+  if (error) throw new Error(error.message);
+
+  await logInvoiceEvent(id, "unsent", { invoice_number: invoice.invoice_number });
+
+  revalidatePath(`/invoices/${id}`);
+  revalidatePath("/invoices");
+  revalidatePath("/dashboard");
+}
+
+export async function updateInvoice(id: string, input: CreateInvoiceInput) {
+  const member = await requireMember();
+  const supabase = await createClient();
+
+  // The edit route is draft-only. The menu already hides Edit for other statuses,
+  // but nothing stopped a direct /invoices/<id>/edit URL from rewriting a paid
+  // invoice — which would desync paid_amount from total and corrupt the status.
+  const { data: current } = await supabase
+    .from("invoices")
+    .select("status")
+    .eq("id", id)
+    .eq("org_id", member.orgId)
+    .single();
+  if (!current) throw new Error("Invoice not found");
+  if (current.status !== "draft") {
+    throw new Error(
+      current.status === "sent"
+        ? "Move this invoice back to draft before editing it"
+        : `A ${current.status} invoice cannot be edited`
+    );
+  }
 
   const { data: profile } = await supabase
     .from("business_profiles")
     .select("gstin, state, default_template_id")
     .eq("id", input.business_profile_id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
 
   let paymentSnapshot = null;
@@ -180,7 +258,7 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
       .from("payment_methods")
       .select("*")
       .eq("id", input.payment_method_id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single();
     if (pm) paymentSnapshot = pm;
   }
@@ -233,18 +311,19 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .eq("status", "draft");
 
   if (error) throw new Error(error.message);
 
   // Replace line items
-  await supabase.from("invoice_items").delete().eq("invoice_id", id).eq("owner_id", user.id);
+  await supabase.from("invoice_items").delete().eq("invoice_id", id).eq("org_id", member.orgId);
   if (input.items.length > 0) {
     const { error: itemsError } = await supabase.from("invoice_items").insert(
       input.items.map((item, idx) => ({
         invoice_id: id,
-        owner_id: user.id,
+        owner_id: member.id,
+      org_id: member.orgId,
         sort_order: idx,
         description: item.description,
         quantity: item.quantity,
@@ -254,6 +333,8 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
     if (itemsError) throw new Error(itemsError.message);
   }
 
+  await logInvoiceEvent(id, "edited", { total: tax.total, currency: input.currency });
+
   revalidatePath(`/invoices/${id}`);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
@@ -261,15 +342,14 @@ export async function updateInvoice(id: string, input: CreateInvoiceInput) {
 }
 
 export async function deleteInvoice(id: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { error } = await supabase
     .from("invoices")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .eq("status", "draft");
 
   if (error) throw new Error(error.message);
@@ -279,15 +359,14 @@ export async function deleteInvoice(id: string) {
 }
 
 export async function deleteInvoiceForce(id: string) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { error } = await supabase
     .from("invoices")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   if (error) throw new Error(error.message);
   revalidatePath("/invoices");

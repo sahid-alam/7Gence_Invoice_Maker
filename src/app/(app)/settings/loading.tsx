@@ -21,7 +21,7 @@ function CardSkeleton({ rows = 2 }: { rows?: number }) {
 
 export default function SettingsLoading() {
   return (
-    <div className="p-8 max-w-2xl space-y-6 animate-fade-in">
+    <div className="p-4 sm:p-8 max-w-2xl space-y-6 animate-fade-in">
       <div className="space-y-1.5">
         <Skeleton className="h-7 w-24" />
         <Skeleton className="h-4 w-44" />

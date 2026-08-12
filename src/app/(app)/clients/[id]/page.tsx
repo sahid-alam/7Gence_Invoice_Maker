@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,14 +14,14 @@ import { CountryStateSelect } from "@/components/ui/country-state-select";
 import { formatCurrency } from "@/lib/currency";
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: client } = await supabase
     .from("clients")
     .select("*")
     .eq("id", params.id)
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .single();
 
   if (!client) notFound();
@@ -29,14 +30,14 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     .from("invoices")
     .select("id, invoice_number, status, total, currency, issue_date, due_date")
     .eq("client_id", params.id)
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("issue_date", { ascending: false })
     .limit(10);
 
   const updateWithId = updateClient.bind(null, client.id);
 
   return (
-    <div className="p-8 max-w-3xl space-y-8">
+    <div className="p-4 sm:p-8 max-w-3xl space-y-8">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/clients">
@@ -126,7 +127,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           <Separator />
           <div className="space-y-4">
             <h3 className="font-semibold">Invoice history</h3>
-            <div className="rounded-lg border border-border overflow-hidden">
+            <div className="rounded-lg border border-border overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>

@@ -3,7 +3,7 @@ import { Separator } from "@/components/ui/separator";
 
 export default function ClientDetailLoading() {
   return (
-    <div className="p-8 max-w-3xl space-y-8 animate-fade-in">
+    <div className="p-4 sm:p-8 max-w-3xl space-y-8 animate-fade-in">
       <Skeleton className="h-8 w-20 rounded-lg" />
 
       <div className="flex items-start justify-between">

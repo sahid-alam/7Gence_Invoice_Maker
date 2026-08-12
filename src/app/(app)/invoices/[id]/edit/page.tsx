@@ -1,26 +1,26 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import { notFound, redirect } from "next/navigation";
 import { InvoiceForm } from "@/components/invoices/invoice-form";
 import type { TaxType, CurrencyCode } from "@/types/app.types";
 
 export default async function EditInvoicePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const [invoiceRes, itemsRes, profilesRes, clientsRes] = await Promise.all([
     supabase
       .from("invoices")
       .select("*")
       .eq("id", id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single(),
     supabase
       .from("invoice_items")
       .select("description, quantity, unit_price")
       .eq("invoice_id", id)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .order("sort_order"),
     supabase
       .from("business_profiles")
@@ -73,7 +73,7 @@ export default async function EditInvoicePage({ params }: { params: Promise<{ id
   };
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 sm:p-8 max-w-4xl">
       <div className="mb-8">
         <h2 className="text-2xl font-bold tracking-tight">Edit Invoice</h2>
         <p className="text-muted-foreground font-mono text-sm">{invoice.invoice_number}</p>

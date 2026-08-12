@@ -14,7 +14,7 @@ const TEMPLATES = [
 
 export default function NewProfilePage() {
   return (
-    <div className="p-8 max-w-2xl space-y-6">
+    <div className="p-4 sm:p-8 max-w-2xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">New Business Profile</h2>
         <p className="text-muted-foreground">This represents you (or a team member) as the invoice sender</p>

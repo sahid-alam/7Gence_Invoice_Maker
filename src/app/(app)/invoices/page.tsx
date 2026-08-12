@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -13,15 +14,15 @@ export default async function InvoicesPage({
   searchParams: Promise<{ status?: string; profile?: string; fy?: string }>;
 }) {
   const { status, profile, fy } = await searchParams;
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   const today = new Date().toISOString().split("T")[0];
 
   let query = supabase
     .from("invoices")
     .select("id, invoice_number, client_name, total, paid_amount, currency, status, issue_date, due_date, business_profile_id")
-    .eq("owner_id", user!.id)
+    .eq("org_id", member.orgId)
     .order("created_at", { ascending: false });
 
   if (status === "overdue") {
@@ -38,14 +39,14 @@ export default async function InvoicesPage({
     supabase
       .from("business_profiles")
       .select("id, display_name, country")
-      .eq("owner_id", user!.id)
+      .eq("org_id", member.orgId)
       .order("display_name"),
     query,
     (() => {
       let q = supabase
         .from("invoices")
         .select("status, due_date, issue_date")
-        .eq("owner_id", user!.id);
+        .eq("org_id", member.orgId);
       if (profile) q = q.eq("business_profile_id", profile);
       return q;
     })(),
@@ -90,7 +91,7 @@ export default async function InvoicesPage({
   const activeTab = status || "all";
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Invoices</h2>
         <div className="flex items-center gap-3">
@@ -154,7 +155,7 @@ export default async function InvoicesPage({
           </Button>
         </div>
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>

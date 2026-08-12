@@ -1,20 +1,22 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireMember } from "@/lib/auth";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 import { encryptToken, decryptToken } from "@/lib/token-crypto";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
 import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
+import type { PaymentMethodSnapshot } from "@/types/app.types";
 import { registerFonts } from "@/lib/pdf/fonts";
 import React from "react";
 
-async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClient>>, userId: string) {
+async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) {
   const { data: token } = await supabase
     .from("oauth_tokens")
     .select("access_token, refresh_token, expires_at")
-    .eq("owner_id", userId)
+    .eq("org_id", orgId)
     .eq("provider", "google_drive")
     .single();
 
@@ -45,7 +47,7 @@ async function getValidDriveToken(supabase: Awaited<ReturnType<typeof createClie
   await supabase
     .from("oauth_tokens")
     .update({ access_token: encryptToken(refreshed.access_token), expires_at: expiresAt })
-    .eq("owner_id", userId)
+    .eq("org_id", orgId)
     .eq("provider", "google_drive");
 
   return refreshed.access_token;
@@ -128,24 +130,23 @@ async function uploadPdfToDrive(
 }
 
 export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: string }> {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const accessToken = await getValidDriveToken(supabase, user.id);
+  const accessToken = await getValidDriveToken(supabase, member.orgId);
 
   const [invoiceRes, itemsRes] = await Promise.all([
     supabase
       .from("invoices")
       .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url, drive_root_folder_id)`)
       .eq("id", invoiceId)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .single(),
     supabase
       .from("invoice_items")
       .select("description, quantity, unit_price")
       .eq("invoice_id", invoiceId)
-      .eq("owner_id", user.id)
+      .eq("org_id", member.orgId)
       .order("sort_order"),
   ]);
 
@@ -186,23 +187,24 @@ export async function exportInvoiceToDrive(invoiceId: string): Promise<{ url: st
     .from("invoices")
     .update({ drive_url: url, drive_file_id: fileId })
     .eq("id", invoiceId)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
+
+  await logInvoiceEvent(invoiceId, "exported_to_drive", { url });
 
   return { url };
 }
 
 export async function exportReceiptToDrive(receiptId: string): Promise<{ url: string }> {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const accessToken = await getValidDriveToken(supabase, user.id);
+  const accessToken = await getValidDriveToken(supabase, member.orgId);
 
   const { data: receipt } = await supabase
     .from("receipts")
     .select(`*, business_profiles(display_name, email, phone, address_line1, city, state, country, gstin, logo_url, drive_root_folder_id), invoices(invoice_number)`)
     .eq("id", receiptId)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
 
   if (!receipt) throw new Error("Receipt not found");
@@ -244,7 +246,7 @@ export async function exportReceiptToDrive(receiptId: string): Promise<{ url: st
     sender_gstin: null,
     notes: receipt.notes,
     linked_invoice_number: (receipt.invoices as { invoice_number: string } | null)?.invoice_number ?? null,
-    payment_method_snapshot: receipt.payment_method_snapshot as Record<string, string> | null,
+    payment_method_snapshot: receipt.payment_method_snapshot as PaymentMethodSnapshot | null,
     business_profiles: receipt.business_profiles,
     items: [],
   };
@@ -260,15 +262,14 @@ export async function exportReceiptToDrive(receiptId: string): Promise<{ url: st
     .from("receipts")
     .update({ drive_url: webViewLink, drive_file_id: fileId })
     .eq("id", receiptId)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   return { url: webViewLink };
 }
 
 export async function removeFromDrive(kind: "invoice" | "receipt", id: string): Promise<{ deleted: boolean }> {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const table = kind === "invoice" ? "invoices" : "receipts";
 
@@ -276,12 +277,12 @@ export async function removeFromDrive(kind: "invoice" | "receipt", id: string): 
     .from(table)
     .select("drive_file_id")
     .eq("id", id)
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .single();
 
   let deleted = false;
   if (record?.drive_file_id) {
-    const accessToken = await getValidDriveToken(supabase, user.id);
+    const accessToken = await getValidDriveToken(supabase, member.orgId);
     const delRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${record.drive_file_id}`,
       { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
@@ -297,20 +298,19 @@ export async function removeFromDrive(kind: "invoice" | "receipt", id: string): 
     .from(table)
     .update({ drive_url: null, drive_file_id: null })
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("org_id", member.orgId);
 
   revalidatePath(`/${kind === "invoice" ? "invoices" : "receipts"}/${id}`);
   return { deleted };
 }
 
 export async function disconnectGoogleDrive() {
+  const member = await requireMember();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   await supabase
     .from("oauth_tokens")
     .delete()
-    .eq("owner_id", user.id)
+    .eq("org_id", member.orgId)
     .eq("provider", "google_drive");
 }

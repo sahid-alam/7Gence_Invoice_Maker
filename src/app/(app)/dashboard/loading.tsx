@@ -14,7 +14,7 @@ function TableRowSkeleton() {
 
 export default function DashboardLoading() {
   return (
-    <div className="p-8 space-y-8 animate-fade-in">
+    <div className="p-4 sm:p-8 space-y-8 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="space-y-2">
@@ -40,7 +40,7 @@ export default function DashboardLoading() {
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-4 w-16" />
         </div>
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
