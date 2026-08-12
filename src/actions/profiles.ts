@@ -81,6 +81,31 @@ export async function deleteProfile(id: string) {
   const member = await requireMember();
   const supabase = await createClient();
 
+  // invoices.business_profile_id and receipts.business_profile_id have no ON DELETE
+  // rule, so Postgres would reject this with a raw foreign-key error. Check first and
+  // say what to do about it — payment_methods and payments cascade and are fine.
+  const [{ count: invoiceCount }, { count: receiptCount }] = await Promise.all([
+    supabase
+      .from("invoices")
+      .select("id", { count: "exact", head: true })
+      .eq("business_profile_id", id)
+      .eq("org_id", member.orgId),
+    supabase
+      .from("receipts")
+      .select("id", { count: "exact", head: true })
+      .eq("business_profile_id", id)
+      .eq("org_id", member.orgId),
+  ]);
+
+  const blockers: string[] = [];
+  if (invoiceCount) blockers.push(`${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`);
+  if (receiptCount) blockers.push(`${receiptCount} receipt${receiptCount === 1 ? "" : "s"}`);
+  if (blockers.length) {
+    throw new Error(
+      `This identity still has ${blockers.join(" and ")}. Delete or void ${blockers.length > 1 ? "them" : "those"} first — removing it now would orphan documents you may need at audit.`
+    );
+  }
+
   const { error } = await supabase
     .from("business_profiles")
     .delete()

@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { updateProfile, deleteProfile } from "@/actions/profiles";
+import { updateProfile } from "@/actions/profiles";
+import { DeleteProfileButton } from "@/components/profiles/delete-profile-button";
 import { PaymentMethodsSection } from "@/components/profiles/payment-methods-section";
 import { CountryStateSelect } from "@/components/ui/country-state-select";
 import { ArrowLeft } from "lucide-react";
@@ -129,15 +130,16 @@ export default async function ProfileDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
+            <div className="pt-2">
               <Button type="submit">Save Changes</Button>
-              <form action={deleteProfile.bind(null, id)}>
-                <Button type="submit" variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                  Delete Profile
-                </Button>
-              </form>
             </div>
           </form>
+
+          {/* Outside the edit form — a nested <form> is invalid HTML and breaks
+              hydration, which is why this button silently did nothing before. */}
+          <div className="mt-4 flex items-center justify-end border-t border-border pt-4">
+            <DeleteProfileButton profileId={id} profileName={profile.display_name} />
+          </div>
         </TabsContent>
 
         <TabsContent value="payment" className="pt-4">
