@@ -161,6 +161,18 @@ Earnings filter on `settlementDate()` = `received_date ?? payment_date`, via `in
 
 **A failed Supabase query returns `data: null`, which rolls up to a confident ₹0.00.** Both the dashboard and payments page check `.error` and render an explicit failure state instead — never total a ledger you could not read.
 
+### Financial-year report
+
+`/reports` — the year's shape: hero total, month-by-month columns, year-over-year change, and billed/outstanding per currency.
+
+`src/lib/fy-report.ts` does the arithmetic and **takes its date windows as parameters** rather than importing `financial-year.ts`. Two reasons: duplicating what a financial year *is* would risk the report and the filters disagreeing about which year a payment falls in, and staying free of value imports lets it be unit-tested directly (node's test runner can't resolve the `@/` alias — `import type` is fine, it's erased).
+
+It uses the same basis as the dashboard's Earned figure: settled INR only, dated by when the money landed. The two can never disagree. Unsettled payments and non-INR settlements are shown beside the total, never folded into it.
+
+The chart is hand-written SVG — twelve rectangles don't justify a dependency, and it keeps the page a server component. Single series, so one hue and no legend. `#16a34a` is the one green that clears the validator's lightness band in **both** themes (0.43–0.77 light, 0.48–0.67 dark), so both modes share it. One direct label (the peak month) plus axis ticks; a table view under `<details>` for anyone not reading the chart.
+
+**Which year is "the year" comes from the profile country.** With profiles in different countries it falls back to the calendar year, and the page states which basis it used. See the entity question in Deferred — that's the input this depends on.
+
 ### Payments ledger
 
 A payment is a **bank event**, not an invoice field. `payments` = one row per money-in event; `payment_invoice_links` = split allocations of that payment across one or more invoices (`amount_applied`). All of it lives in `src/actions/payments.ts` (`recordPayment`, `deletePayment`, `updatePaymentSettlement`, `getOutstandingInvoices`).

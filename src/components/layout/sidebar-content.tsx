@@ -18,6 +18,7 @@ import {
   Moon,
   Sun,
   Plug,
+  BarChart3,
 } from "lucide-react";
 
 export const navItems = [
@@ -25,6 +26,7 @@ export const navItems = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/receipts", label: "Receipts", icon: Receipt },
   { href: "/payments", label: "Payments", icon: Banknote },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
