@@ -121,6 +121,30 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  /* Ticker for the compose bar's example prompts.
+     A CSS animation rather than a JS one: this runs continuously for as long as the
+     dashboard is open, and the compositor can drive a transform on its own thread
+     without waking the main thread every frame. The track holds the list twice and
+     travels exactly -50%, so the seam lands where the copies meet and the loop is
+     invisible. */
+  .animate-ticker {
+    animation: ticker 44s linear infinite;
+  }
+  /* Pause under the pointer so a prompt can actually be read and clicked. */
+  .ticker-track:hover .animate-ticker,
+  .ticker-track:focus-within .animate-ticker {
+    animation-play-state: paused;
+  }
+
+  @keyframes ticker {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-ticker { animation: none; }
+  }
+
   /* Stagger helper classes */
   .stagger-1 { animation-delay: 50ms; }
   .stagger-2 { animation-delay: 100ms; }

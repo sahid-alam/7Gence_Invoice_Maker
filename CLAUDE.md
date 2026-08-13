@@ -11,6 +11,10 @@ npm run lint                         # ESLint check
 npx tsc --noEmit                     # type check only
 node --test src/lib/*.test.ts        # unit checks (node's built-in runner, no framework)
 
+# Development sandbox — NEVER test against the real organization's books
+node --env-file=.env scripts/dev-account.mjs   # create/reset dev@7gence.dev in its own org
+node --env-file=.env scripts/seed-sandbox.mjs  # 18 months of realistic books in that org
+
 # Supabase (requires supabase CLI)
 supabase start                       # start local Supabase
 supabase db push                     # apply migrations to hosted project
@@ -66,6 +70,71 @@ Activity events snapshot the actor's email into `detail.by` at write time rather
 Member management lives in `src/actions/members.ts` and surfaces on `/settings`. Those actions use the **service-role** client because they touch `auth.users`, which the anon key cannot read — so every one of them checks `member.role === "owner"` first. Never add a member action that skips that check.
 
 New members are created with a password shown once to the owner, rather than emailed an invite link: Supabase's built-in mailer is rate-limited and needs SMTP configured, and a link that silently never arrives is worse than a password handed over directly. That password is generated **server-side with `randomBytes(16)`** — never in the browser. `Math.random()` is not a CSPRNG and a short word-pattern carries ~19 bits; this credential opens every invoice and bank detail in the org. Adding someone who already has an account never resets their password.
+
+### Development sandbox
+
+**Never develop or test against the real organization.** `scripts/dev-account.mjs` creates `dev@7gence.dev` in its own **Dev Sandbox** org with its own `DEV` sender profile; isolation is the ordinary org RLS, so the sandbox account simply cannot see the real books. Run it with `node --env-file=.env scripts/dev-account.mjs` and check the sidebar footer reads "Dev Sandbox · Owner" before testing anything that writes.
+
+This exists because testing against the real org has twice corrupted live data — a fabricated bank credit, and three orphan payment rows that inflated Earned by ₹97,830. The script uses the service-role key, which bypasses RLS, so it resolves the sandbox org **only** by its exact name and refuses to run if the dev user is somehow a member of any other org.
+
+`scripts/seed-sandbox.mjs` then fills it with eighteen months of books. It is **the fixture the insights engine is designed against**, so its shape is deliberate: five clients with genuinely different payment behaviour, three currencies, a dormant client, a real overdue tail, and an FX rate that drifts so a realised-rate trend has something to say. Change the thresholds in `insights.ts` and this is what tells you whether they still fire sensibly. It wipes the sandbox org's books first, so re-running gives identical data.
+
+### Insights
+
+`src/lib/insights.ts` computes what the dashboard's "What stands out" panel says. **No language model is involved**, and none should be: every figure is arithmetic over the reader's own rows, and a hallucinated rupee figure in a ledger is worse than no figure at all.
+
+The hard part is not computing them, it's **knowing when to stay quiet**. On a book with two clients, "88% of income comes from one client" is a restatement of having two clients, not a finding. Every function returns `null` below a stated evidence threshold — 4 paying clients before concentration is reported, 3 paid invoices from a client before its payment speed means anything, 4 settlements spanning 120 days before an FX move is a trend. The thresholds are named constants at the top of the file so they are visible and testable, and `insights.test.ts` tests the **suppression** cases as hard as the firing ones. A panel that is mostly empty in month one and fills in over a year is behaving correctly.
+
+Each insight carries an `evidence` line ("median of 6 paid invoices") that renders on the card. A claim about someone's money should say what it was worked out from.
+
+Deliberately **not** included: a FEMA 270-day realisation countdown. That is exactly the compliance logic the entity question in Deferred parks pending a CPA/CA — an insights panel must not quietly resolve it.
+
+### AI features
+
+Two, and the split between them is the point: **the model never produces a number that reaches the books.**
+
+`src/lib/ai/compose-invoice.ts` turns a sentence ("invoice Kakion €1,200 for phase 3, due in 30 days") into a draft. It uses **`openai/gpt-oss-120b` with strict `json_schema`** — on Groq, strict structured outputs run only on the gpt-oss models, which is why this doesn't share a model with the PDF importer. Two limits make it safe:
+
+- **It fills a form, it does not create an invoice.** The draft lands in the ordinary `/invoices/new` form for a person to confirm, and **no invoice number is reserved** — `createInvoice` calls `next_invoice_number()` at save time, so an abandoned AI draft can't burn a number out of a series GST wants sequential.
+- **The client list never leaves the machine.** The model sees only the typed sentence and returns whatever name it read; `src/actions/ai.ts` matches that locally against the org's clients. A model that never saw the customer list can neither leak it nor invent a plausible-sounding customer.
+
+Which GST applies is resolved **locally** with `suggestTaxType`, never by the model — CGST+SGST versus IGST turns on sender and client state, which is in the database, not in the sentence.
+
+The handoff runs through `sessionStorage` (`lib/ai/draft-key.ts`), consumed on read. `NewInvoiceForm` reads it and remounts `InvoiceForm` via a changed `key` so the draft is present at **first render**: Radix's `Select` learns an item's label from the render that mounted it, so a value assigned later in an effect leaves the trigger visibly blank. Don't move this back into an effect.
+
+`CommandPalette` (⌘K, mounted in the `(app)` layout) makes composing available from any screen, alongside navigation and the usual actions. The compose option only appears once the query is four words or more — below that it is almost certainly navigation.
+
+`src/lib/ai/brief.ts` + `summariseBooks()` write the "Sum it up for me" paragraph above the insight cards. It is handed the **already-computed findings** and forbidden from introducing a figure of its own, so everything numeric it says is checkable on a card directly beneath it. The model's job is deciding what matters most today and saying it like a person — the one thing here it does better than `reduce`.
+
+Three things keep it honest, and none of them are optional:
+
+- **Findings are recomputed server-side**, never accepted from the browser. A client that could post arbitrary "findings" could talk the model into saying anything, and this text sits directly above real money.
+- **Client names are pseudonymised** (`CLIENT_1`, `CLIENT_2`) before the call and restored after, longest name first so "Kakion" doesn't half-rewrite "Kakion Ltd". The amounts do leave the machine — that is the honest cost of a summary that says anything useful, and it is why this is a **button, not something that runs on page load**.
+- It refuses to summarise a ledger that failed to load, rather than confidently describing an incomplete picture.
+
+`gpt-oss` reasons before it answers and bills that thinking against the same `max_tokens`, so a tight cap returns empty `content` with the whole allowance spent reasoning. Hence `reasoning_effort: "low"` and generous headroom; a `finish_reason === "length"` is reported distinctly from an empty answer.
+
+Deliberately **not** built: free-form "ask your books" Q&A. That is a whole query-planning surface, and for a handful of clients the insight cards already answer most of it.
+
+### Motion
+
+`src/components/motion/primitives.tsx` holds the animated leaves: `Stagger`/`StaggerItem`, `RevealOnScroll`, `CountUp`, `GrowBar`, `Lift`.
+
+**Pages stay server components; motion lives in the leaves.** They take finished values as props and animate their presentation — none of them fetches or computes. Turning the dashboard itself into a client component would give up RSC data fetching on the busiest screen and undo the `getClaims()` navigation work.
+
+Everything degrades to a static render under `useReducedMotion`. That is not a nicety — a money figure spinning up from zero is precisely the animation someone with vestibular sensitivity needs off.
+
+### Importing past invoices
+
+`/invoices/import` brings pre-existing PDF invoices into the books, one file or a folder's worth. Three layers, in order, and **no path is a dead end** — a scan with no text layer, a corrupt file and a model outage all land on an editable form rather than an error page:
+
+1. `src/lib/invoice-extract.ts` — deterministic pattern matching. No value imports, so `node --test` can run it directly. Returns nulls, never guesses: an ambiguous `06/07/2026` becomes `null` because a wrong invoice date is worse than an empty field.
+2. `src/lib/groq-extract.ts` — asked only when something critical (total, client, date) came back empty, or when the reviewer presses "Re-read with AI". Temperature 0, nulls allowed, defensive coercion. **`redactBankDetails()` strips account numbers, IFSC and sort codes before anything leaves the machine** — an imported invoice's payment block is irrelevant, since a re-issued invoice takes its own from the sender profile.
+3. The review form. Nothing saves without a person confirming, which is what makes the model fallback safe.
+
+**Line items reconcile against the subtotal, not the total.** A tax-inclusive total compared against pre-tax lines flags every correct GST invoice as broken. `review()` uses `subtotal ?? total`, and warns separately when a rate was found but no subtotal line was — that means the lines were filled from the total and now double-count the tax.
+
+Imports keep their original number (the client and the bank saw it); the unique index on `(business_profile_id, invoice_number)` stops clashes, and the profile counter is only nudged when the old number matches that profile's own pattern. **No payment row is ever created, whatever the status** — `paid_amount` records what the client settled, while Earned counts rows in `payments`, which exist only for money this app watched arrive. A batch imports row by row: one failure never rolls back the rest.
 
 ### Password reset
 

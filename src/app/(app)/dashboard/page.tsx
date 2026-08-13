@@ -2,15 +2,27 @@ import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, AlertCircle, CheckCircle2, Plus, Banknote, TrendingUp, Clock } from "lucide-react";
+import {
+  AlertCircle, Plus, Banknote, TrendingUp, Clock, ArrowRight,
+} from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { ProfileFilter } from "@/components/filters/profile-filter";
 import { FYFilter } from "@/components/filters/fy-filter";
 import { getFYConfig, getFYDateRange } from "@/lib/financial-year";
 import { computeEarnings, groupByCurrency, inSettlementRange, HOME_CURRENCY } from "@/lib/earnings";
-import type { CurrencyCode } from "@/types/app.types";
+import { computeInsights } from "@/lib/insights";
+import { InsightsPanel } from "@/components/dashboard/insights-panel";
+import { BooksBrief } from "@/components/dashboard/books-brief";
+import { MiniTrend } from "@/components/dashboard/mini-trend";
+import { Stagger, StaggerItem, RevealOnScroll, CountUp } from "@/components/motion/primitives";
+import { AskBar } from "@/components/ai/ask-bar";
+import { CURRENCY_SYMBOLS, type CurrencyCode } from "@/types/app.types";
 
+/**
+ * This page stays a **server component**. Motion lives in the leaf components it
+ * renders, which take finished numbers as props — turning the dashboard itself into
+ * a client component would give up RSC data fetching on the app's busiest screen.
+ */
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -23,7 +35,7 @@ export default async function DashboardPage({
 
   let statsQuery = supabase
     .from("invoices")
-    .select("status, total, currency, due_date, issue_date, paid_amount")
+    .select("id, invoice_number, client_name, status, total, currency, due_date, issue_date, paid_amount")
     .eq("org_id", member.orgId);
   let recentInvoicesQuery = supabase
     .from("invoices")
@@ -33,7 +45,7 @@ export default async function DashboardPage({
     .limit(5);
   let paymentsQuery = supabase
     .from("payments")
-    .select("total_amount, currency, received_amount, received_currency, payment_date, received_date")
+    .select("id, payer_name, total_amount, currency, received_amount, received_currency, payment_date, received_date")
     .eq("org_id", member.orgId);
   let recentPaymentsQuery = supabase
     .from("payments")
@@ -49,18 +61,25 @@ export default async function DashboardPage({
     recentPaymentsQuery = recentPaymentsQuery.eq("business_profile_id", profile);
   }
 
-  const [invoiceStatsRes, recentInvoicesRes, profilesRes, paymentsStatsRes, recentPaymentsRes] =
-    await Promise.all([
-      statsQuery,
-      recentInvoicesQuery,
-      supabase
-        .from("business_profiles")
-        .select("id, display_name, country")
-        .eq("org_id", member.orgId)
-        .order("display_name"),
-      paymentsQuery,
-      recentPaymentsQuery,
-    ]);
+  const [
+    invoiceStatsRes, recentInvoicesRes, profilesRes, paymentsStatsRes, recentPaymentsRes, linksRes,
+  ] = await Promise.all([
+    statsQuery,
+    recentInvoicesQuery,
+    supabase
+      .from("business_profiles")
+      .select("id, display_name, country")
+      .eq("org_id", member.orgId)
+      .order("display_name"),
+    paymentsQuery,
+    recentPaymentsQuery,
+    // Needed to date each invoice's settlement — that is what "how fast does this
+    // client pay" is measured from.
+    supabase
+      .from("payment_invoice_links")
+      .select("payment_id, invoice_id, amount_applied")
+      .eq("org_id", member.orgId),
+  ]);
 
   // A failed query returns data: null, which would roll up to a confident ₹0.00 —
   // the exact silently-wrong money figure this whole feature exists to prevent.
@@ -89,22 +108,27 @@ export default async function DashboardPage({
   // Earnings are filtered by when the money reached the bank (see lib/earnings).
   const filteredPayments = inSettlementRange(allPaymentStats, fyRange);
 
-  // Status counts
-  const draft = filteredInvoices.filter((i) => i.status === "draft").length;
-  const sentCount = filteredInvoices.filter((i) => i.status === "sent").length;
-  const partial = filteredInvoices.filter((i) => i.status === "partial").length;
-  const overdue = filteredInvoices.filter(
-    (i) =>
-      (i.status === "sent" || i.status === "partial") &&
-      i.due_date != null &&
-      i.due_date < today
-  ).length;
-  const paid = filteredInvoices.filter((i) => i.status === "paid").length;
+  const statuses = [
+    { key: "draft", label: "Draft", tone: "text-muted-foreground" },
+    { key: "sent", label: "Sent", tone: "text-foreground" },
+    { key: "partial", label: "Partial", tone: "text-blue-600" },
+    { key: "overdue", label: "Overdue", tone: "text-amber-600" },
+    { key: "paid", label: "Paid", tone: "text-green-600" },
+  ] as const;
+
+  const counts: Record<string, number> = {
+    draft: filteredInvoices.filter((i) => i.status === "draft").length,
+    sent: filteredInvoices.filter((i) => i.status === "sent").length,
+    partial: filteredInvoices.filter((i) => i.status === "partial").length,
+    overdue: filteredInvoices.filter(
+      (i) => (i.status === "sent" || i.status === "partial") && i.due_date != null && i.due_date < today
+    ).length,
+    paid: filteredInvoices.filter((i) => i.status === "paid").length,
+  };
 
   // Billed and Outstanding stay in the currency they were invoiced in. They are
   // receivables, not money — no conversion has happened, so an INR figure here
-  // would be an estimate sitting next to exact ones. Grouping beats the old
-  // behaviour of showing nothing at all whenever more than one currency was in play.
+  // would be an estimate sitting next to exact ones.
   const billedByCurrency = groupByCurrency(
     filteredInvoices
       .filter((i) => i.status !== "draft" && i.status !== "void")
@@ -117,19 +141,42 @@ export default async function DashboardPage({
       .map((i) => ({ amount: i.total - (i.paid_amount ?? 0), currency: i.currency }))
   ).filter((r) => r.amount > 0);
 
-  // Earnings — exact INR that reached the bank, plus everything the figure is
-  // missing. The old logic returned null whenever payments spanned more than one
-  // currency or any settlement was absent, so the number silently disappeared in
-  // exactly the case it mattered most. See src/lib/earnings.ts.
   const earnings = computeEarnings(filteredPayments);
 
+  // Six months of settled INR, oldest first, for the hero's trend.
+  const months = lastSixMonths(today).map(({ key, label }) => ({
+    label,
+    value: filteredPayments
+      .filter(
+        (p) =>
+          p.received_amount != null &&
+          p.received_currency === HOME_CURRENCY &&
+          (p.received_date ?? p.payment_date ?? "").startsWith(key)
+      )
+      .reduce((s, p) => s + Number(p.received_amount), 0),
+  }));
+
+  // Insights deliberately ignore the financial-year filter, invoices and payments
+  // alike. "This client has gone quiet" and "this invoice is 75 days overdue" are
+  // facts about where things stand now, not about a tax year — and mixing the two
+  // was visibly wrong: selecting an empty year zeroed the cards while concentration
+  // and FX carried on reporting all-time figures beside them.
+  const insights = paymentsError
+    ? []
+    : computeInsights({
+        today,
+        invoices,
+        payments: allPaymentStats,
+        links: linksRes.data ?? [],
+      });
+
   return (
-    <div className="p-4 sm:p-8 space-y-8">
+    <div className="space-y-8 p-4 sm:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-muted-foreground">Overview of your invoices and payments</p>
+          <p className="text-muted-foreground">What your books say today</p>
         </div>
         <div className="flex items-center gap-3">
           <FYFilter
@@ -156,6 +203,8 @@ export default async function DashboardPage({
         </div>
       </div>
 
+      {hasProfiles && <AskBar />}
+
       <ProfileFilter
         profiles={profiles}
         selectedProfile={profile}
@@ -164,7 +213,7 @@ export default async function DashboardPage({
       />
 
       {!hasProfiles && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
           Set up your business profile first to start creating invoices.{" "}
           <Link href="/profiles/new" className="font-medium underline">
             Create profile →
@@ -172,274 +221,279 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {/* Financial overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <TrendingUp size={14} /> Total Billed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {billedByCurrency.length === 0 ? (
-              <p className="text-3xl font-bold text-muted-foreground">—</p>
-            ) : (
-              <div className="space-y-0.5">
-                {billedByCurrency.map((r, i) => (
-                  <p key={r.currency} className={i === 0 ? "text-3xl font-bold" : "text-lg font-semibold text-muted-foreground"}>
-                    {formatCurrency(r.amount, r.currency)}
-                  </p>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">Sent &amp; paid invoices</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-green-200/60 dark:border-green-900/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
+      {/* Money */}
+      <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <StaggerItem className="lg:col-span-1">
+          <div className="h-full rounded-2xl border border-green-200/70 bg-card p-5 shadow-card dark:border-green-900/40">
+            <p className="flex items-center gap-2 text-sm font-medium text-green-600">
               <Banknote size={14} /> Earned ({HOME_CURRENCY})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </p>
+
             {paymentsError ? (
               <>
-                <p className="text-3xl font-bold text-muted-foreground">—</p>
-                <p className="mt-1 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                <p className="mt-2 text-4xl font-bold text-muted-foreground">—</p>
+                <p className="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
                   Couldn&apos;t read the payments ledger, so no total is shown rather than a
                   wrong one. {paymentsError}
                 </p>
               </>
             ) : (
               <>
-            <p className="text-3xl font-bold text-green-600">
-              {formatCurrency(earnings.earnedHome, HOME_CURRENCY)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Actually credited to your bank
-              {earnings.settledCount > 0 && ` · ${earnings.settledCount} payment${earnings.settledCount === 1 ? "" : "s"}`}
-            </p>
+                <div className="mt-2">
+                  <MiniTrend
+                    months={months}
+                    amount={earnings.earnedHome}
+                    symbol={CURRENCY_SYMBOLS[HOME_CURRENCY as CurrencyCode] ?? "₹"}
+                  />
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Actually credited to your bank
+                  {earnings.settledCount > 0 &&
+                    ` · ${earnings.settledCount} payment${earnings.settledCount === 1 ? "" : "s"}`}
+                </p>
 
-            {/* The figure must never look complete when it isn't. */}
-            {earnings.pendingCount > 0 && (
-              <Link
-                href="/payments"
-                className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70"
-              >
-                <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                <span>
-                  <span className="font-medium">
-                    {earnings.pendingCount} payment{earnings.pendingCount === 1 ? "" : "s"} not settled
-                  </span>{" "}
-                  ({earnings.pending.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}) — not
-                  in this total. Add the bank amount →
-                </span>
-              </Link>
-            )}
-            {earnings.settledOther.length > 0 && (
-              <p className="mt-2 rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">
-                Also held outside {HOME_CURRENCY}:{" "}
-                {earnings.settledOther.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}
-              </p>
-            )}
+                {/* The figure must never look complete when it isn't. */}
+                {earnings.pendingCount > 0 && (
+                  <Link
+                    href="/payments"
+                    className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70"
+                  >
+                    <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                    <span>
+                      <span className="font-medium">
+                        {earnings.pendingCount} payment{earnings.pendingCount === 1 ? "" : "s"} not settled
+                      </span>{" "}
+                      ({earnings.pending.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}) — not
+                      in this total. Add the bank amount →
+                    </span>
+                  </Link>
+                )}
+                {earnings.settledOther.length > 0 && (
+                  <p className="mt-2 rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+                    Also held outside {HOME_CURRENCY}:{" "}
+                    {earnings.settledOther.map((r) => formatCurrency(r.amount, r.currency)).join(" · ")}
+                  </p>
+                )}
               </>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-amber-200/60 dark:border-amber-900/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-amber-600 flex items-center gap-2">
-              <Clock size={14} /> Outstanding
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {outstandingByCurrency.length === 0 ? (
-              <p className="text-3xl font-bold text-amber-600">
-                {formatCurrency(0, HOME_CURRENCY)}
-              </p>
-            ) : (
-              <div className="space-y-0.5">
-                {outstandingByCurrency.map((r, i) => (
-                  <p key={r.currency} className={i === 0 ? "text-3xl font-bold text-amber-600" : "text-lg font-semibold text-amber-600/70"}>
-                    {formatCurrency(r.amount, r.currency)}
-                  </p>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              Still owed on sent invoices · not converted, no rate applied yet
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Status counts */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <FileText size={14} /> Draft
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{draft}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <FileText size={14} /> Sent
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{sentCount}</p>
-            {overdue > 0 && (
-              <p className="text-xs text-amber-600 mt-1">{overdue} overdue</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-blue-200/60 dark:border-blue-900/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-blue-600 flex items-center gap-2">
-              <FileText size={14} /> Partial
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-blue-600">{partial}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-amber-200/60 dark:border-amber-900/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-amber-600 flex items-center gap-2">
-              <AlertCircle size={14} /> Overdue
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-amber-600">{overdue}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-green-200/60 dark:border-green-900/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
-              <CheckCircle2 size={14} /> Paid
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-green-600">{paid}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Invoices */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Recent Invoices</h3>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/invoices">View all →</Link>
-          </Button>
-        </div>
-        {(recentInvoicesRes.data?.length ?? 0) === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center">
-            <p className="text-muted-foreground text-sm">No invoices yet.</p>
-            {hasProfiles && (
-              <Button asChild variant="outline" size="sm" className="mt-3">
-                <Link href="/invoices/new">Create your first invoice</Link>
-              </Button>
-            )}
           </div>
-        ) : (
-          <div className="rounded-lg border border-border overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Invoice</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Client</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Amount</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {recentInvoicesRes.data?.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/invoices/${inv.id}`}
-                        className="font-medium hover:underline font-mono"
-                      >
-                        {inv.invoice_number}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{inv.client_name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{inv.issue_date}</td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(inv.total, inv.currency)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={inv.status} />
-                    </td>
+        </StaggerItem>
+
+        <StaggerItem>
+          <MoneyCard
+            icon={<TrendingUp size={14} />}
+            label="Total billed"
+            rows={billedByCurrency}
+            caption="Sent & paid invoices"
+          />
+        </StaggerItem>
+
+        <StaggerItem>
+          <MoneyCard
+            icon={<Clock size={14} />}
+            label="Outstanding"
+            rows={outstandingByCurrency}
+            caption="Still owed on sent invoices · not converted, no rate applied yet"
+            tone="text-amber-600"
+            border="border-amber-200/70 dark:border-amber-900/40"
+            zero={formatCurrency(0, HOME_CURRENCY)}
+          />
+        </StaggerItem>
+      </Stagger>
+
+      {/* Status strip — five counts don't need five cards */}
+      <StaggerItem>
+        <div className="grid grid-cols-2 divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card sm:grid-cols-3 lg:grid-cols-5 lg:divide-x">
+          {statuses.map((s) => (
+            <Link
+              key={s.key}
+              href={`/invoices?status=${s.key}`}
+              className="group px-5 py-4 transition-colors hover:bg-accent/50"
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {s.label}
+              </p>
+              <CountUp value={counts[s.key]} className={`mt-1 block text-2xl font-bold ${s.tone}`} />
+            </Link>
+          ))}
+        </div>
+      </StaggerItem>
+
+      {/* Insights */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">What stands out</h3>
+            <p className="text-xs text-muted-foreground">
+              {fyRange
+                ? "Where things stand now — not limited to the selected year"
+                : "Worked out from your rows — every figure links to what produced it"}
+            </p>
+          </div>
+        </div>
+        {/* Trigger and summary are one component so they share state; it sits
+            between the heading and the cards it summarises. */}
+        {insights.length > 0 && <BooksBrief profileId={profile} />}
+        <InsightsPanel insights={insights} />
+      </section>
+
+      {/* Recent activity */}
+      <RevealOnScroll className="grid gap-6 xl:grid-cols-2">
+        <div>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-semibold">Recent invoices</h3>
+            <Link href="/invoices" className="text-sm text-muted-foreground hover:text-foreground">
+              View all <ArrowRight size={13} className="inline" />
+            </Link>
+          </div>
+          {(recentInvoicesRes.data?.length ?? 0) === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+              <p className="text-sm text-muted-foreground">No invoices yet.</p>
+              {hasProfiles && (
+                <Button asChild variant="outline" size="sm" className="mt-3">
+                  <Link href="/invoices/new">Create your first invoice</Link>
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Invoice</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Client</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Amount</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {recentInvoicesRes.data?.map((inv) => (
+                    <tr key={inv.id} className="transition-colors hover:bg-muted/30">
+                      <td className="px-4 py-3">
+                        <Link href={`/invoices/${inv.id}`} className="font-mono font-medium hover:underline">
+                          {inv.invoice_number}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{inv.client_name}</td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatCurrency(inv.total, inv.currency)}
+                      </td>
+                      <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {recentPayments.length > 0 && (
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold">Recent payments</h3>
+              <Link href="/payments" className="text-sm text-muted-foreground hover:text-foreground">
+                View all <ArrowRight size={13} className="inline" />
+              </Link>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Payer</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Amount</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Mode</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {recentPayments.map((p) => (
+                    <tr key={p.id} className="transition-colors hover:bg-muted/30">
+                      <td className="px-4 py-3 text-muted-foreground">{p.payment_date}</td>
+                      <td className="px-4 py-3 font-medium">{p.payer_name}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="block font-medium">
+                          {p.received_amount && p.received_currency
+                            ? formatCurrency(Number(p.received_amount), p.received_currency as CurrencyCode)
+                            : formatCurrency(Number(p.total_amount), p.currency)}
+                        </span>
+                        {p.received_amount && p.received_currency && (
+                          <span className="block text-xs text-muted-foreground">
+                            {formatCurrency(Number(p.total_amount), p.currency)} invoiced
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 capitalize text-muted-foreground">
+                        {p.payment_mode?.replace("_", " ") ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
-      </div>
-
-      {/* Recent Payments */}
-      {recentPayments.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Recent Payments</h3>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/payments">View all →</Link>
-            </Button>
-          </div>
-          <div className="rounded-lg border border-border overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Payer</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Amount</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mode</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {recentPayments.map((p) => (
-                  <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 text-muted-foreground">{p.payment_date}</td>
-                    <td className="px-4 py-3 font-medium">{p.payer_name}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-medium block">
-                        {p.received_amount && p.received_currency
-                          ? formatCurrency(Number(p.received_amount), p.received_currency as CurrencyCode)
-                          : formatCurrency(Number(p.total_amount), p.currency)}
-                      </span>
-                      {p.received_amount && p.received_currency && (
-                        <span className="text-xs text-muted-foreground block">
-                          {formatCurrency(Number(p.total_amount), p.currency)} invoiced
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground capitalize">
-                      {p.payment_mode?.replace("_", " ") ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      </RevealOnScroll>
     </div>
   );
+}
+
+/**
+ * Billed and Outstanding. Grouped per currency, never summed across them — an
+ * invoice in dollars and one in euros have no common total until money moves.
+ */
+function MoneyCard({
+  icon, label, rows, caption, tone = "", border = "border-border", zero,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  rows: { currency: string; amount: number }[];
+  caption: string;
+  tone?: string;
+  border?: string;
+  zero?: string;
+}) {
+  return (
+    <div className={`h-full rounded-2xl border ${border} bg-card p-5 shadow-card`}>
+      <p className={`flex items-center gap-2 text-sm font-medium ${tone || "text-muted-foreground"}`}>
+        {icon} {label}
+      </p>
+      {rows.length === 0 ? (
+        <p className={`mt-2 text-3xl font-bold ${tone || "text-muted-foreground"}`}>
+          {zero ?? "—"}
+        </p>
+      ) : (
+        <div className="mt-2 space-y-0.5">
+          {rows.map((r, i) => (
+            <p
+              key={r.currency}
+              className={
+                i === 0
+                  ? `text-3xl font-bold ${tone}`
+                  : `text-lg font-semibold ${tone ? `${tone} opacity-70` : "text-muted-foreground"}`
+              }
+            >
+              {formatCurrency(r.amount, r.currency)}
+            </p>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">{caption}</p>
+    </div>
+  );
+}
+
+/** The six months ending today, oldest first. */
+function lastSixMonths(today: string): { key: string; label: string }[] {
+  const out: { key: string; label: string }[] = [];
+  const [y, m] = today.split("-").map(Number);
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push({
+      key: d.toISOString().slice(0, 7),
+      label: d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" }),
+    });
+  }
+  return out;
 }
 
 function StatusBadge({ status }: { status: string }) {

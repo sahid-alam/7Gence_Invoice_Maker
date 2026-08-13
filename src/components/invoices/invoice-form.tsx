@@ -20,6 +20,32 @@ import { createInvoice, updateInvoice, type CreateInvoiceInput } from "@/actions
 import { calculateTax } from "@/lib/tax-calculator";
 import { formatCurrency, formatAmount } from "@/lib/currency";
 import { GST_RATES, type TaxType, type CurrencyCode } from "@/types/app.types";
+import { AiFilledBanner } from "@/components/ai/ai-filled-banner";
+
+/**
+ * Shape handed over by the dashboard's compose bar. See `actions/ai.ts`.
+ *
+ * It is consumed in the `useState` initialisers below, never in an effect. Radix's
+ * Select registers an item's label only from the render that mounted it, so a value
+ * assigned after mount leaves the trigger visibly blank — the currency and client
+ * pickers came up empty until this moved to first render. `NewInvoiceForm` is what
+ * guarantees the draft is known before this component mounts.
+ */
+export interface AiDraft {
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  clientGstin?: string;
+  currency?: string;
+  issueDate?: string;
+  dueDate?: string;
+  items?: { description: string; quantity: number; unit_price: number }[];
+  taxType?: string;
+  taxRate?: number;
+  notes?: string;
+}
 
 interface LineItem {
   id: string;
@@ -85,9 +111,12 @@ export function InvoiceForm({
   profiles,
   clients,
   initialValues,
+  prefill,
 }: {
   profiles: Profile[];
   clients: ClientOption[];
+  /** A composed draft, applied at first render. Never means "editing". */
+  prefill?: AiDraft;
   initialValues?: InitialValues;
 }) {
   const router = useRouter();
@@ -98,36 +127,39 @@ export function InvoiceForm({
 
   const [profileId, setProfileId] = useState(initialValues?.profileId ?? defaultProfile?.id ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(
-    initialValues?.currency ?? (defaultProfile?.default_currency as CurrencyCode) ?? "USD"
+    initialValues?.currency ?? (prefill?.currency as CurrencyCode) ?? (defaultProfile?.default_currency as CurrencyCode) ?? "USD"
   );
   const [templateId, setTemplateId] = useState(initialValues?.templateId ?? defaultProfile?.default_template_id ?? "white-caps");
 
   // Client fields
-  const [selectedClientId, setSelectedClientId] = useState(initialValues?.clientId ?? "__manual__");
-  const [clientName, setClientName] = useState(initialValues?.clientName ?? "");
-  const [clientCompany, setClientCompany] = useState(initialValues?.clientCompany ?? "");
-  const [clientEmail, setClientEmail] = useState(initialValues?.clientEmail ?? "");
-  const [clientAddress, setClientAddress] = useState(initialValues?.clientAddress ?? "");
-  const [clientGstin, setClientGstin] = useState(initialValues?.clientGstin ?? "");
+  const [selectedClientId, setSelectedClientId] = useState(initialValues?.clientId ?? prefill?.clientId ?? "__manual__");
+  const [clientName, setClientName] = useState(initialValues?.clientName ?? prefill?.clientName ?? "");
+  const [clientCompany, setClientCompany] = useState(initialValues?.clientCompany ?? prefill?.clientCompany ?? "");
+  const [clientEmail, setClientEmail] = useState(initialValues?.clientEmail ?? prefill?.clientEmail ?? "");
+  const [clientAddress, setClientAddress] = useState(initialValues?.clientAddress ?? prefill?.clientAddress ?? "");
+  const [clientGstin, setClientGstin] = useState(initialValues?.clientGstin ?? prefill?.clientGstin ?? "");
 
   // Dates
   const today = new Date().toISOString().split("T")[0];
-  const [issueDate, setIssueDate] = useState(initialValues?.issueDate ?? today);
-  const [dueDate, setDueDate] = useState(initialValues?.dueDate ?? "");
+  const [issueDate, setIssueDate] = useState(initialValues?.issueDate ?? prefill?.issueDate ?? today);
+  const [dueDate, setDueDate] = useState(initialValues?.dueDate ?? prefill?.dueDate ?? "");
 
   // Line items
   const [items, setItems] = useState<LineItem[]>(
-    initialValues?.items ?? [{ id: crypto.randomUUID(), description: "", quantity: 1, unit_price: 0 }]
+    initialValues?.items ??
+      prefill?.items?.map((i) => ({ id: crypto.randomUUID(), ...i })) ?? [
+        { id: crypto.randomUUID(), description: "", quantity: 1, unit_price: 0 },
+      ]
   );
 
   // Tax
-  const [taxType, setTaxType] = useState<TaxType>(initialValues?.taxType ?? "none");
-  const [taxRate, setTaxRate] = useState(initialValues?.taxRate ?? 18);
+  const [taxType, setTaxType] = useState<TaxType>(initialValues?.taxType ?? (prefill?.taxType as TaxType) ?? "none");
+  const [taxRate, setTaxRate] = useState(initialValues?.taxRate ?? prefill?.taxRate ?? 18);
   const [discountPercent, setDiscountPercent] = useState(initialValues?.discountPercent ?? 0);
 
   // Payment
   const [paymentMethodId, setPaymentMethodId] = useState(initialValues?.paymentMethodId ?? "__none__");
-  const [notes, setNotes] = useState(initialValues?.notes ?? "");
+  const [notes, setNotes] = useState(initialValues?.notes ?? prefill?.notes ?? "");
   const [terms, setTerms] = useState(initialValues?.terms ?? "");
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -261,6 +293,8 @@ export function InvoiceForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
+      {prefill && <AiFilledBanner />}
+
       {/* Profile & Template */}
       <div className="grid grid-cols-2 gap-6">
         <div className="space-y-2">

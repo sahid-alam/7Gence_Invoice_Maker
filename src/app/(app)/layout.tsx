@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Suspense } from "react";
 import { FlashToast } from "@/components/flash-toast";
+import { CommandPalette } from "@/components/ai/command-palette";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();
@@ -38,6 +39,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
        needs border-box sizing (Tailwind's preflight gives us that) and min-h-0
        on the flex children, or the inner scroll container collapses. */
     <div className="flex h-screen gap-2 overflow-hidden bg-background p-0 lg:gap-2 lg:p-2">
+      {/* ⌘K from any screen — navigation, the usual actions, and composing an
+          invoice from a sentence without first going to the dashboard. */}
+      <CommandPalette />
       <Sidebar user={sidebarUser} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-border bg-card lg:rounded-panel lg:border lg:shadow-panel">
         {/* Fixed-position tab bar + drawer, so it sits outside the flow. */}

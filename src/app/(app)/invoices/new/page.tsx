@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { InvoiceForm } from "@/components/invoices/invoice-form";
+import { NewInvoiceForm } from "@/components/invoices/new-invoice-form";
 
 export default async function NewInvoicePage() {
   const member = await requireMember();
@@ -39,7 +39,7 @@ export default async function NewInvoicePage() {
         <h2 className="text-2xl font-bold tracking-tight">New Invoice</h2>
         <p className="text-muted-foreground">Create a professional invoice</p>
       </div>
-      <InvoiceForm profiles={profiles} clients={clientsRes.data ?? []} />
+      <NewInvoiceForm profiles={profiles} clients={clientsRes.data ?? []} />
     </div>
   );
 }
