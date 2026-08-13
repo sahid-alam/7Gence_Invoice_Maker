@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import type { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/token-crypto";
+import { UserFacingError } from "@/lib/errors";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -26,11 +27,11 @@ export async function getGmailTransport(supabase: Supabase, orgId: string) {
   ]);
 
   if (!tokenRes.data) {
-    throw new Error("Google account not connected — go to Settings to connect Google");
+    throw new UserFacingError("Google account not connected — go to Settings to connect Google");
   }
   const gmailUser = settingsRes.data?.gmail_user;
   if (!gmailUser) {
-    throw new Error("Gmail address not found — reconnect Google in Settings");
+    throw new UserFacingError("Gmail address not found — reconnect Google in Settings");
   }
 
   let accessToken = decryptToken(tokenRes.data.access_token);
@@ -41,7 +42,7 @@ export async function getGmailTransport(supabase: Supabase, orgId: string) {
   // Refresh a minute before expiry, not at it — a token that dies mid-send fails
   // the whole email.
   if (tokenRes.data.expires_at && new Date(tokenRes.data.expires_at) <= new Date(Date.now() + 60_000)) {
-    if (!refreshTokenRaw) throw new Error("Google token expired — reconnect in Settings");
+    if (!refreshTokenRaw) throw new UserFacingError("Google token expired — reconnect in Settings");
 
     const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -53,7 +54,7 @@ export async function getGmailTransport(supabase: Supabase, orgId: string) {
         grant_type: "refresh_token",
       }),
     });
-    if (!refreshRes.ok) throw new Error("Failed to refresh Google token — reconnect in Settings");
+    if (!refreshRes.ok) throw new UserFacingError("Failed to refresh Google token — reconnect in Settings");
 
     const refreshed = (await refreshRes.json()) as { access_token: string; expires_in: number };
     accessToken = refreshed.access_token;

@@ -6,6 +6,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import { getGmailTransport, escapeHtml } from "@/lib/gmail";
+import { UserFacingError, asResult, type ActionResult } from "@/lib/errors";
 
 /**
  * Initial password for a new member.
@@ -165,9 +166,17 @@ export async function removeMember(userId: string) {
  * password instead of needing a fresh link every time they sign in. It lands on
  * /reset-password, which already exists for exactly this.
  */
-export async function sendMemberInvite(userId: string): Promise<{ email: string }> {
+export async function sendMemberInvite(
+  userId: string
+): Promise<ActionResult<{ email: string }>> {
+  // Returned, not thrown: Next replaces a thrown Server Action error with an
+  // opaque digest in production, which is precisely where the reason matters.
+  return asResult(() => inviteBody(userId), "Could not send the sign-in link");
+}
+
+async function inviteBody(userId: string): Promise<{ email: string }> {
   const me = await requireMember();
-  if (me.role !== "owner") throw new Error("Only an owner can send invites");
+  if (me.role !== "owner") throw new UserFacingError("Only an owner can send invites");
 
   const supabase = await createClient();
   const admin = adminClient();
@@ -179,10 +188,10 @@ export async function sendMemberInvite(userId: string): Promise<{ email: string 
     .eq("org_id", me.orgId)
     .eq("user_id", userId)
     .maybeSingle();
-  if (!membership) throw new Error("That person isn't in your organization");
+  if (!membership) throw new UserFacingError("That person isn't in your organization");
 
   const { data: userRes, error: userErr } = await admin.auth.admin.getUserById(userId);
-  if (userErr || !userRes.user?.email) throw new Error("Could not find that account");
+  if (userErr || !userRes.user?.email) throw new UserFacingError("Could not find that account");
   const email = userRes.user.email;
 
   const { data: org } = await supabase
@@ -190,7 +199,7 @@ export async function sendMemberInvite(userId: string): Promise<{ email: string 
   const orgName = org?.name ?? "the team";
 
   const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  if (!base) throw new Error("NEXT_PUBLIC_APP_URL is not set — needed to build the sign-in link");
+  if (!base) throw new UserFacingError("The app URL isn't configured on the server, so a sign-in link can't be built");
 
   // generateLink returns the link without Supabase sending anything itself.
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
@@ -199,7 +208,7 @@ export async function sendMemberInvite(userId: string): Promise<{ email: string 
     options: { redirectTo: `${base}/auth/callback?next=/reset-password` },
   });
   if (linkErr || !link?.properties?.action_link) {
-    throw new Error(`Could not create the sign-in link: ${linkErr?.message ?? "unknown error"}`);
+    throw new UserFacingError(`Could not create the sign-in link: ${linkErr?.message ?? "unknown error"}`);
   }
   const actionLink = link.properties.action_link;
 

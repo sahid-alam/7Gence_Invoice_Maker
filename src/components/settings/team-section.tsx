@@ -48,8 +48,11 @@ export function TeamSection({
   async function handleInvite(m: OrgMember) {
     setSending(m.userId);
     try {
-      await sendMemberInvite(m.userId);
-      toast.success(`Sign-in link sent to ${m.email}`);
+      const res = await sendMemberInvite(m.userId);
+      // The reason arrives as data, so it survives production. A thrown error
+      // would reach here as an opaque digest.
+      if (res.ok) toast.success(`Sign-in link sent to ${m.email}`);
+      else toast.error(res.message, { duration: 8000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send the email");
     } finally {

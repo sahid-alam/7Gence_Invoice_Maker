@@ -5,6 +5,7 @@ import { requireMember } from "@/lib/auth";
 import { logInvoiceEvent } from "@/lib/invoice-events";
 import { formatCurrency } from "@/lib/currency";
 import { getGmailTransport } from "@/lib/gmail";
+import { UserFacingError, asResult, type ActionResult } from "@/lib/errors";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { TemplateWhiteCaps } from "@/components/pdf/templates/template-white-caps";
 import { TemplateCreamSerif } from "@/components/pdf/templates/template-cream-serif";
@@ -20,7 +21,16 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#x27;");
 }
 
-export async function sendInvoiceEmail(invoiceId: string) {
+export async function sendInvoiceEmail(
+  invoiceId: string
+): Promise<ActionResult<{ sentTo: string }>> {
+  // Returned, not thrown — see lib/errors.ts. Emailing an invoice is the app's
+  // core job, and "reconnect Google in Settings" is useless if production
+  // replaces it with a digest.
+  return asResult(() => sendInvoiceEmailBody(invoiceId), "Could not send the invoice");
+}
+
+async function sendInvoiceEmailBody(invoiceId: string): Promise<{ sentTo: string }> {
   const member = await requireMember();
   const supabase = await createClient();
 
@@ -50,16 +60,16 @@ export async function sendInvoiceEmail(invoiceId: string) {
       .single(),
   ]);
 
-  if (!invoiceRes.data) throw new Error("Invoice not found");
-  if (!invoiceRes.data.client_email) throw new Error("No client email on this invoice");
+  if (!invoiceRes.data) throw new UserFacingError("Invoice not found");
+  if (!invoiceRes.data.client_email) throw new UserFacingError("No client email on this invoice — add one and try again");
 
   if (!tokenRes.data) {
-    throw new Error("Google account not connected — go to Settings to connect Google");
+    throw new UserFacingError("Google account not connected — go to Settings to connect Google");
   }
 
   const gmailUser = settingsRes.data?.gmail_user;
   if (!gmailUser) {
-    throw new Error("Gmail address not found — reconnect Google in Settings");
+    throw new UserFacingError("Gmail address not found — reconnect Google in Settings");
   }
 
   const invoice = invoiceRes.data;
@@ -132,12 +142,16 @@ export async function sendInvoiceEmail(invoiceId: string) {
       ],
     });
   } catch (err) {
-    throw new Error(err instanceof Error ? err.message : "Failed to send email — check your Google connection in Settings");
+    throw new UserFacingError(
+      err instanceof Error
+        ? err.message
+        : "Failed to send email — check your Google connection in Settings"
+    );
   }
 
   await logInvoiceEvent(invoiceId, "emailed", { to: invoice.client_email });
 
-  return { success: true };
+  return { sentTo: invoice.client_email };
 }
 
 export async function saveEmailSettings({

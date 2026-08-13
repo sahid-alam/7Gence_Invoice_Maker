@@ -190,8 +190,9 @@ export function InvoiceActions({ invoice }: { invoice: Invoice }) {
   async function handleSendEmail() {
     setLoading(true);
     try {
-      await sendInvoiceEmail(invoice.id);
-      toast.success("Email sent to client");
+      const res = await sendInvoiceEmail(invoice.id);
+      if (res.ok) toast.success(`Email sent to ${res.sentTo}`);
+      else toast.error(res.message, { duration: 8000 });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send email");
     } finally {
