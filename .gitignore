@@ -45,3 +45,6 @@ next-env.d.ts
 
 # local scripts that contain secrets
 setup_env.sh
+
+# sample invoices used for import testing — real client data
+samples/

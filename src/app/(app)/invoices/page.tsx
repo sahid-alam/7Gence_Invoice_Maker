@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { ProfileFilter } from "@/components/filters/profile-filter";
 import { FYFilter } from "@/components/filters/fy-filter";
@@ -101,6 +101,12 @@ export default async function InvoicesPage({
             basePath="/invoices"
             extraParams={{ profile, status }}
           />
+          <Button variant="outline" asChild>
+            <Link href="/invoices/import">
+              <Upload size={16} className="mr-2" />
+              Import
+            </Link>
+          </Button>
           <Button asChild>
             <Link href="/invoices/new">
               <Plus size={16} className="mr-2" />
