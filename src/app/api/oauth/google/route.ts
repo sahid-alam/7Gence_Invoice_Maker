@@ -1,3 +1,4 @@
+import { googleRedirectUri } from "@/lib/app-url";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
@@ -8,7 +9,6 @@ export async function GET() {
   if (!user) redirect("/login");
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   if (!clientId) {
     redirect("/settings?error=google_not_configured");
@@ -26,7 +26,7 @@ export async function GET() {
 
   const params = new URLSearchParams({
     client_id: clientId!,
-    redirect_uri: `${appUrl}/api/oauth/google/callback`,
+    redirect_uri: googleRedirectUri(),
     response_type: "code",
     // Drive + Gmail send + email address lookup — one OAuth flow covers everything
     scope: [

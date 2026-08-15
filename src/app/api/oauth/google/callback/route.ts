@@ -1,3 +1,4 @@
+import { googleRedirectUri } from "@/lib/app-url";
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
@@ -29,7 +30,6 @@ export async function GET(req: NextRequest) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID!;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       code: code!,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: `${appUrl}/api/oauth/google/callback`,
+      redirect_uri: googleRedirectUri(),
       grant_type: "authorization_code",
     }),
   });

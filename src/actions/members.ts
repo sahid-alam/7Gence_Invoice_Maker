@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import { getGmailTransport, escapeHtml } from "@/lib/gmail";
 import { UserFacingError, asResult, type ActionResult } from "@/lib/errors";
+import { appUrl } from "@/lib/app-url";
 
 /**
  * Initial password for a new member.
@@ -198,7 +199,7 @@ async function inviteBody(userId: string): Promise<{ email: string }> {
     .from("organizations").select("name").eq("id", me.orgId).single();
   const orgName = org?.name ?? "the team";
 
-  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const base = appUrl();
   if (!base) throw new UserFacingError("The app URL isn't configured on the server, so a sign-in link can't be built");
 
   // generateLink returns the link without Supabase sending anything itself.
